@@ -29,7 +29,7 @@ except ImportError:
     try:
         import opening_book as ai_book
     except ImportError:
-        print("❌ LỖI: Không tìm thấy file sách (ai_book.py)")
+        print("❌ ERROR: Could not find book file (ai_book.py)")
         sys.exit()
 
 from robot import FR5Robot
@@ -40,7 +40,7 @@ from robot import FR5Robot
 ALLOW_MOUSE_MOVE = config.DRY_RUN
 
 print(
-    f"\n=== CHẾ ĐỘ: {'🛠️ DRY RUN (MOUSE & LOG)' if config.DRY_RUN else '🤖 REAL RUN (CAMERA & ROBOT)'} ==="
+    f"\n=== MODE: {'🛠️ DRY RUN (MOUSE & LOG)' if config.DRY_RUN else '🤖 REAL RUN (CAMERA & ROBOT)'} ==="
 )
 
 # ==========================================
@@ -64,8 +64,10 @@ PIECE_FONT = pygame.font.SysFont("simsun", 20, bold=True)
 GAME_FONT = pygame.font.SysFont("times new roman", 36, bold=True)
 UI_FONT = pygame.font.SysFont("arial", 16, bold=True)
 
-BTN_SURRENDER_RECT = pygame.Rect(SCREEN_WIDTH / 2 - 60, SCREEN_HEIGHT - 60, 120, 40)
+BTN_SURRENDER_RECT = pygame.Rect(SCREEN_WIDTH / 2 - 150, SCREEN_HEIGHT - 60, 120, 40)
+BTN_NEW_GAME_RECT = pygame.Rect(SCREEN_WIDTH / 2 + 30, SCREEN_HEIGHT - 60, 120, 40)
 BTN_COLOR = (200, 50, 50)
+BTN_NEW_GAME_COLOR = (50, 150, 200)
 
 PIECE_DISPLAY_NAMES = {
     "r_K": "帥", "r_A": "仕", "r_E": "相", "r_R": "俥", "r_N": "傌", "r_C": "炮", "r_P": "兵",
@@ -90,9 +92,7 @@ r_captured = []
 b_captured = []
 move_history = []
 
-# ==========================================
-# 3. ROBOT & CAMERA CONFIG
-# ==========================================
+# --- ROBOT & CAMERA CONFIG ---
 robot = FR5Robot()
 
 # Chỉ kết nối Robot nếu KHÔNG phải DRY_RUN
@@ -100,15 +100,15 @@ try:
     if not config.DRY_RUN:
         robot.connect()
     else:
-        print("[MAIN] DRY_RUN: Bỏ qua kết nối vật lý Robot.")
+        print("[MAIN] DRY_RUN: Skipping physical robot connection.")
         robot.connected = False  # Giả lập trạng thái
 except Exception as e:
-    print(f"[MAIN] Lỗi kết nối Robot: {e}")
+    print(f"[MAIN] Robot connection error: {e}")
     if not config.DRY_RUN:
         sys.exit()
 
 # --- HIỆU CHỈNH ROBOT ---
-print("\n--- HIỆU CHỈNH ROBOT ---")
+print("\n--- ROBOT CALIBRATION ---")
 dst_pts_logic = np.array([[0, 0], [8, 0], [8, 9], [0, 9]], dtype=np.float32)
 try:
     if config.DRY_RUN:
@@ -116,12 +116,12 @@ try:
         src_pts_fake = np.array([[200, -100], [520, -100], [520, 260], [200, 260]], dtype=np.float32)
         robot.set_perspective_matrix(cv2.getPerspectiveTransform(dst_pts_logic, src_pts_fake))
     else:
-        print("Đang đọc tọa độ từ Robot...")
+        print("Reading coordinates from robot...")
         # Lấy điểm teaching (Giả sử robot đã được dạy 4 điểm R1-R4 tương ứng 4 góc bàn cờ)
         pts_data = []
         for i in range(1, 5):
             err, data = robot.robot.GetRobotTeachingPoint(f"R{i}")
-            if err: raise Exception(f"Lỗi lấy điểm R{i}")
+            if err: raise Exception(f"Error getting point R{i}")
             pts_data.append([float(data[0]), float(data[1])])
 
         src_pts_robot = np.array(pts_data, dtype=np.float32)
@@ -129,7 +129,7 @@ try:
         robot.set_perspective_matrix(M_rob)
         print("=== ROBOT CALIBRATION OK ===")
 except Exception as e:
-    print(f"[MAIN] Lỗi Calib Robot: {e}")
+    print(f"[MAIN] Robot calibration error: {e}")
     if not config.DRY_RUN:
         sys.exit()
 
@@ -142,8 +142,8 @@ if not config.DRY_RUN:
     try:
         model = YOLO(MODEL_PATH)
     except:
-        print("⚠️ Warning: Không load được model chính. Kiểm tra lại đường dẫn!")
-        # sys.exit() # Uncomment nếu bắt buộc phải có model
+        print("⚠️ Warning: Could not load model. Check the path!")
+        # sys.exit() # Uncomment if model is required
 
     cap = cv2.VideoCapture(int(os.environ.get("VIDEO_INDEX", "1")), cv2.CAP_DSHOW)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
@@ -170,12 +170,21 @@ def draw_ui():
     screen.fill(BOARD_COLOR)
     if not game_over:
         pygame.draw.rect(screen, BTN_COLOR, BTN_SURRENDER_RECT, border_radius=8)
-        txt = UI_FONT.render("ĐẦU HÀNG", True, (255, 255, 255))
+        txt = UI_FONT.render("SURRENDER", True, (255, 255, 255))
         screen.blit(txt, txt.get_rect(center=BTN_SURRENDER_RECT.center))
+
+        pygame.draw.rect(screen, BTN_NEW_GAME_COLOR, BTN_NEW_GAME_RECT, border_radius=8)
+        txt_new = UI_FONT.render("NEW GAME", True, (255, 255, 255))
+        screen.blit(txt_new, txt_new.get_rect(center=BTN_NEW_GAME_RECT.center))
 
         mode_str = "MOUSE (DRY RUN)" if ALLOW_MOUSE_MOVE else "CAMERA AI"
         mode_txt = UI_FONT.render(f"MODE: {mode_str}", True, (0, 0, 255))
         screen.blit(mode_txt, (10, 10))
+    else:
+        # Show New Game button when game is over
+        pygame.draw.rect(screen, BTN_NEW_GAME_COLOR, BTN_NEW_GAME_RECT, border_radius=8)
+        txt_new = UI_FONT.render("NEW GAME", True, (255, 255, 255))
+        screen.blit(txt_new, txt_new.get_rect(center=BTN_NEW_GAME_RECT.center))
 
     # Vẽ bàn cờ
     for r in range(NUM_ROWS):
@@ -220,7 +229,7 @@ def calibrate_perspective_camera(cap, save_path):
     window = "CALIBRATE"
     cv2.namedWindow(window)
     cv2.setMouseCallback(window, lambda e, x, y, f, p: pts.append((x, y)) if e == 1 and len(pts) < 4 else None)
-    print("⚠️ Click 4 góc: TopLeft -> TopRight -> BotRight -> BotLeft")
+    print("⚠️ Click 4 corners: TopLeft -> TopRight -> BotRight -> BotLeft")
     while True:
         ret, frame = cap.read()
         if not ret: break
@@ -233,7 +242,7 @@ def calibrate_perspective_camera(cap, save_path):
         dst = np.array([[0, 0], [8, 0], [8, 9], [0, 9]], dtype=np.float32)
         M = cv2.getPerspectiveTransform(np.array(pts, dtype=np.float32), dst)
         np.save(save_path, M)
-        print(f"Đã lưu file hiệu chỉnh: {save_path}")
+        print(f"Saved calibration file: {save_path}")
     cv2.destroyWindow(window)
 
 # Hàm này dùng để chuyển đổi tọa độ YOLO sang ô cờ
@@ -282,18 +291,32 @@ def piece_str_to_sound(piece_str):
     try: return PIECE_LETTER_TO_SOUND.get(piece_str.split("_")[-1])
     except: return None
 
+def reset_game():
+    global board, turn, game_over, winner, last_move, selected_pos, r_captured, b_captured, move_history, last_sync_time
+    board = xiangqi.get_board()
+    turn = "r"
+    game_over = False
+    winner = None
+    last_move = None
+    selected_pos = None
+    r_captured = []
+    b_captured = []
+    move_history = []
+    last_sync_time = time.time()
+    print("[GAME] 🔄 New game started!")
+
 def handle_game_over(the_winner):
     global game_over, winner
     winner, game_over = the_winner, True
     if the_winner == "b":
-        print("\n[LEARN] 🧠 AI Thắng! Đang lưu dữ liệu vào sách...")
+        print("\n[LEARN] 🧠 AI Wins! Saving data to book...")
         ai_book.learn_game(move_history, the_winner)
     else:
-        print("\n[LEARN] 🗑️ AI Thua! KHÔNG lưu dữ liệu này.")
+        print("\n[LEARN] 🗑️ AI Lost! NOT saving this data.")
 
 def process_human_move(src, dst, p_name):
     global board, last_move, turn
-    print(f"[HUMAN] ✅ Đã đi: {p_name} {src}->{dst}")
+    print(f"[HUMAN] ✅ Moved: {p_name} {src}->{dst}")
     key = ai_book.board_to_key(board)
     move_history.append({"turn": "r", "key": key, "src": src, "dst": dst})
     
@@ -336,8 +359,12 @@ while running:
         if event.type == pygame.MOUSEBUTTONDOWN:
             mx, my = event.pos
             if BTN_SURRENDER_RECT.collidepoint(mx, my) and not game_over:
-                print("[GAME] BẠN ĐẦU HÀNG!")
+                print("[GAME] YOU SURRENDER!")
                 handle_game_over("b")
+                continue
+
+            if BTN_NEW_GAME_RECT.collidepoint(mx, my):
+                reset_game()
                 continue
 
             if ALLOW_MOUSE_MOVE and turn == "r" and not game_over:
@@ -353,7 +380,7 @@ while running:
                             process_human_move(src, dst, p_name)
                             selected_pos = None
                         else:
-                            print(f"Nước đi không hợp lệ: {src}->{dst}")
+                            print(f"Invalid move: {src}->{dst}")
 
     # --- LOGIC CAMERA ---
     if not ALLOW_MOUSE_MOVE and cap is not None:
@@ -408,7 +435,7 @@ while running:
                     src, dst, p_name = valid_move
                     if xiangqi.is_valid_move(src, dst, board, "r"):
                         process_human_move(src, dst, p_name)
-                    else: print(f"[IGN] ⚠️ Thấy {src}->{dst} nhưng SAI LUẬT")
+                    else: print(f"[IGN] ⚠️ Detected {src}->{dst} but INVALID MOVE")
 
     # ==========================================
     # --- AI TURN (ĐÃ SỬA LỖI LẶP) ---
@@ -470,24 +497,24 @@ while running:
                      piece_diff = abs(board_count["total"] - cam_count["total"])
                      
                      if diff_count > 0:
-                         print(f"⚠️ [SAFETY] Phát hiện {diff_count} vị trí lệch pha. Board: {board_count['total']} quân, Camera: {cam_count['total']} quân")
-                         
+                         print(f"⚠️ [SAFETY] Detected {diff_count} position differences. Board: {board_count['total']} pieces, Camera: {cam_count['total']} pieces")
+
                          # Chỉ đồng bộ khi thỏa mãn điều kiện
                          if diff_count <= 4 and piece_diff <= 2 and cam_count["r"] > 0 and cam_count["b"] > 0:
-                             print(f"✅ [SAFETY] Điều kiện hợp lệ. Đang đồng bộ lại từ camera...")
+                             print(f"✅ [SAFETY] Valid conditions. Syncing from camera...")
                              # Copy bàn cờ camera vào não AI
                              board = [row[:] for row in cam_grid_now]
                              draw_pieces() # Vẽ lại ngay cho người xem thấy
                              pygame.display.flip()
                          else:
-                             print(f"⚠️ [SAFETY] Bỏ qua đồng bộ - Khác biệt quá lớn hoặc không hợp lệ (diff={diff_count}, piece_diff={piece_diff}, r={cam_count['r']}, b={cam_count['b']})")
+                             print(f"⚠️ [SAFETY] Skipping sync - Difference too large or invalid (diff={diff_count}, piece_diff={piece_diff}, r={cam_count['r']}, b={cam_count['b']})")
                              # KHÔNG đồng bộ - giữ nguyên bàn cờ ảo để tránh làm sai
                          
                  except Exception as e:
-                     print(f"Lỗi check an toàn: {e}")
+                     print(f"Camera safety check error: {e}")
         # -------------------------------------------------------------------
 
-        print(f"[AI] Đang nghĩ...")
+        print(f"[AI] Thinking...")
         pygame.display.flip()
         # ... (Code cũ của AI ở dưới giữ nguyên) ...
         pygame.display.flip()
@@ -503,12 +530,12 @@ while running:
                 if len(move_history) > 8:
                     last_srcs = [m['src'] for m in move_history[-6:]]
                     if last_srcs.count(s) >= 3:
-                        print(f"⚠️ AI PHÁT HIỆN LẶP ({s}->{d}) -> KÍCH HOẠT PANIC MODE (Random Move)!")
+                        print(f"⚠️ AI DETECTED LOOP ({s}->{d}) -> ACTIVATING PANIC MODE (Random Move)!")
                         valid_moves = xiangqi.find_all_valid_moves("b", board)
                         if valid_moves:
                             best = random.choice(valid_moves)
                             s, d = best
-                            print(f"👉 Nước đi thay thế: {s}->{d}")
+                            print(f"👉 Alternative move: {s}->{d}")
             # --------------------------------------------------------
 
             if best:
@@ -536,25 +563,25 @@ while running:
                 if config.DRY_RUN:
                     pass # Chỉ log, không làm gì
                 else:
-                    print(f"[AI] Robot thực hiện đi: {s}->{d}")
+                    print(f"[AI] Robot executing move: {s}->{d}")
                     if robot.connected:
                         try:
                             robot.move_piece(s[0], s[1], d[0], d[1], is_cap)
                         except Exception as e:
                             # --- CODE SỬA: BỎ QUA LỖI 112 ĐỂ TRÁNH LẶP ---
                             error_str = str(e)
-                            print(f"⚠️ Robot báo lỗi: {error_str}")
+                            print(f"⚠️ Robot reported error: {error_str}")
 
                             # Nếu lỗi chứa "112" (Lỗi kẹt khớp) hoặc "MoveCart" 
                             # nghĩa là robot đã gắp thả xong nhưng không về được Home.
                             # -> Ta chấp nhận nước đi này là THÀNH CÔNG (True).
                             if "112" in error_str or "MoveCart" in error_str:
-                                print("✅ Lỗi nhẹ (về Home bị kẹt). Vẫn tính là đi thành công!")
-                                robot_success = True 
+                                print("✅ Light error (home return stuck). Still counting as successful move!")
+                                robot_success = True
                             else:
                                 # Các lỗi khác (Mất kết nối, va chạm mạnh...) thì mới báo lỗi thật
-                                print(f"❌ [CRITICAL] ROBOT LỖI NGHIÊM TRỌNG, DỪNG GAME.")
-                                robot_success = False 
+                                print(f"❌ [CRITICAL] ROBOT CRITICAL ERROR, STOPPING GAME.")
+                                robot_success = False
                                 time.sleep(2)
 
                 if robot_success:
@@ -563,11 +590,11 @@ while running:
                     if xiangqi.get_king_pos('r', board) is None: handle_game_over('b') 
                     else: 
                         turn = 'r'
-                        print("[GAME] Tới lượt bạn..."); last_sync_time = time.time() + 4.0
+                        print("[GAME] Your turn..."); last_sync_time = time.time() + 4.0
                 else:
-                    print("⚠️ HỦY CẬP NHẬT BÀN CỜ DO ROBOT LỖI.")
+                    print("⚠️ SKIPPING BOARD UPDATE DUE TO ROBOT ERROR.")
             else:
-                print("[AI] Hết nước -> AI Thua")
+                print("[AI] No moves available -> AI Lost")
                 handle_game_over("r")
         except Exception as e:
             print(f"AI Error: {e}")
@@ -575,7 +602,7 @@ while running:
             turn = "r" # Trả turn để tránh treo game
 
     if game_over:
-        msg = "AI THẮNG (ĐÃ LƯU)" if winner == "b" else "BẠN THẮNG (KHÔNG LƯU)"
+        msg = "AI WINS (SAVED)" if winner == "b" else "YOU WIN (NOT SAVED)"
         color = (0, 255, 0) if winner == "b" else (255, 0, 0)
         txt = GAME_FONT.render(msg, True, color)
         screen.blit(txt, txt.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)))

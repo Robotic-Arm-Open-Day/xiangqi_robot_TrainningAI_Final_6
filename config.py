@@ -28,7 +28,7 @@ ROTATION = [89.658,-0.394, 174.148]
 
 # Kết nối Robot
 ROBOT_IP = "192.168.58.2"
-DRY_RUN = False # Đổi thành True nếu muốn test code mà không cần bật Robot
+DRY_RUN = True # Đổi thành True nếu muốn test code mà không cần bật Robot
 
 # --- THÔNG SỐ AI ---
 AI_THINK_TIME = 10.0  # [QUAN TRỌNG] Thời gian suy nghĩ tối đa (giây)
