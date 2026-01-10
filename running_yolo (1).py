@@ -3,6 +3,8 @@ import cv2
 import time
 import threading
 import queue
+
+import inp
 import numpy as np
 import torch
 from ultralytics import YOLO
@@ -16,7 +18,7 @@ DISPLAY_SCALE = 1.5         # Zoom hiển thị
 TARGET_WIDTH = 320          # Resize để AI chạy nhanh
 CONF = 0.5
 IOU = 0.45
-MODEL_PATH = r"D:\xiangqi_robot_TrainningAI_Final_4\models_chinesechess1\content\runs\detect\train\weights\best.pt"
+MODEL_PATH = r"C:\FPTU\7\xiangqi_robot_TrainningAI_Final_6\xiangqi_robot_TrainningAI_Final_6\models_chinesechess1\content\runs\detect\train\weights\best.pt"
 
 # ==========================================
 # 2. LOAD MODEL
@@ -29,8 +31,8 @@ try:
     model = YOLO(MODEL_PATH)
     if DEVICE == "cuda":
         model.to(DEVICE)
-        try: model.model.half() 
-        except: pass
+        #try: model.model.half()
+        #except: pass
 except Exception as e:
     print(f"❌ Lỗi load model custom: {e}")
     model = YOLO("yolov8n.pt")
@@ -57,6 +59,7 @@ def capture_thread():
         if not ret:
             time.sleep(0.01)
             continue
+        frm = cv2.cvtColor(frm, cv2.COLOR_BGR2RGB)
         if not frame_q.empty():
             try: frame_q.get_nowait()
             except queue.Empty: pass
@@ -92,13 +95,15 @@ while len(points) < 4:
     except queue.Empty:
         continue
 
+    display_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
     # 2. Vẽ điểm đã chọn
-    display_frame = frame.copy()
+    #display_frame = frame.copy()
     for i, p in enumerate(points):
         cv2.circle(display_frame, p, 5, (0, 0, 255), -1)
         cv2.putText(display_frame, str(i+1), (p[0]+10, p[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
     
-    cv2.putText(display_frame, f"Da chon: {len(points)}/4", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+    cv2.putText(display_frame, f"Choose 4 edges: {len(points)}/4", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
     # 3. HIỂN THỊ (FIX LỖI CŨ)
     cv2.imshow("CALIBRATE", display_frame)
@@ -139,13 +144,15 @@ try:
         except queue.Empty:
             continue
 
-        h, w = frame.shape[:2]
+        display_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+        h, w = display_frame.shape[:2]
         if w != TARGET_WIDTH:
             scale = TARGET_WIDTH / float(w)
             new_h = int(h * scale)
             inp = cv2.resize(frame, (TARGET_WIDTH, new_h), interpolation=cv2.INTER_LINEAR)
         else:
-            inp = frame
+            inp = display_frame
 
         # Predict
         results = model.predict(inp, conf=CONF, iou=IOU, device=DEVICE, imgsz=TARGET_WIDTH, verbose=False)
@@ -176,7 +183,8 @@ try:
             disp_h = int(inp.shape[0] * DISPLAY_SCALE)
             disp_w = int(inp.shape[1] * DISPLAY_SCALE)
             disp = cv2.resize(inp, (disp_w, disp_h))
-            cv2.imshow("YOLOv8 Inference", disp)
+            display_frame = cv2.cvtColor(disp, cv2.COLOR_RGB2BGR)
+            cv2.imshow("YOLOv8 Inference", display_frame)
         except:
             cv2.imshow("YOLOv8 Inference", inp)
 

@@ -7,21 +7,21 @@ import time
 # ==========================================
 # CẤU HÌNH CAMERA
 # ==========================================
-VIDEO_SOURCE = 0   # Index camera (Thử 0 nếu không lên hình)
+VIDEO_SOURCE = 1   # Index camera (Thử 0 nếu không lên hình)
 SAVE_PATH = "perspective.npy"
 
 print(f"📷 Đang mở Camera {VIDEO_SOURCE}...")
 cap = cv2.VideoCapture(VIDEO_SOURCE, cv2.CAP_DSHOW)
 # Set độ phân giải cao để click cho chuẩn
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
 if not cap.isOpened():
     print("❌ Lỗi: Không mở được Camera! Hãy thử đổi VIDEO_SOURCE thành 0.")
     exit()
 
 # --- Thread đọc Camera (Giúp hình mượt hơn) ---
-frame_q = queue.Queue(maxsize=1)
+frame_q = queue.Queue(maxsize=2)
 def capture_thread():
     while True:
         ret, frm = cap.read()
@@ -30,10 +30,10 @@ def capture_thread():
                 try: frame_q.get_nowait()
                 except queue.Empty: pass
             frame_q.put(frm)
-        time.sleep(0.01)
+        time.sleep(0.005)
 
 threading.Thread(target=capture_thread, daemon=True).start()
-time.sleep(1.0) # Chờ camera khởi động
+time.sleep(0.5) # Chờ camera khởi động
 
 # ==========================================
 # XỬ LÝ CHUỘT VÀ VẼ
@@ -57,7 +57,7 @@ print("⌨️  Phím tắt: 'R'=Làm lại | 'S'=Lưu file | 'Q'=Thoát")
 
 while True:
     try:
-        frame = frame_q.get(timeout=1.0)
+        frame = frame_q.get(timeout=0.1)
     except queue.Empty:
         continue
 
@@ -113,5 +113,6 @@ while True:
         print("👉 Bây giờ bạn có thể đóng file này và chạy main.py")
         break
 
+stop_flag = True
 cap.release()
 cv2.destroyAllWindows()

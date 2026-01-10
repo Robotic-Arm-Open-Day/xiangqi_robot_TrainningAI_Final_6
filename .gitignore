@@ -97,3 +97,4 @@ debug.log
 *.pem
 .envrc
 
+yolov8n.pt
