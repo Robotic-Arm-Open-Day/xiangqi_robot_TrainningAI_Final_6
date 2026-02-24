@@ -92,6 +92,13 @@ r_captured = []
 b_captured = []
 move_history = []
 
+# --- UI FEEDBACK ---
+status_message = ""          # text shown on screen
+status_color   = (0, 0, 0)   # colour of that text
+status_expiry  = 0.0         # time.time() after which it disappears
+invalid_flash_pos = None     # (col, row) to flash red on invalid move
+invalid_flash_expiry = 0.0
+
 # --- ROBOT & CAMERA CONFIG ---
 robot = FR5Robot()
 
@@ -201,6 +208,18 @@ def draw_ui():
     pygame.draw.line(screen, LINE_COLOR, grid_to_pixel(3, 7), grid_to_pixel(5, 9), 1)
     pygame.draw.line(screen, LINE_COLOR, grid_to_pixel(5, 7), grid_to_pixel(3, 9), 1)
 
+    # --- STATUS MESSAGE (timed, centred at top) ---
+    if status_message and time.time() < status_expiry:
+        msg_surf = UI_FONT.render(status_message, True, (255, 255, 255))
+        padding  = 8
+        bg_rect  = msg_surf.get_rect(centerx=SCREEN_WIDTH // 2, top=32)
+        bg_rect.inflate_ip(padding * 2, padding * 2)
+        # semi-transparent background pill
+        bg_surf  = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+        bg_surf.fill((*status_color, 200))
+        screen.blit(bg_surf, bg_rect.topleft)
+        screen.blit(msg_surf, msg_surf.get_rect(center=bg_rect.center))
+
 def draw_pieces():
     for r in range(NUM_ROWS):
         for c in range(NUM_COLS):
@@ -222,6 +241,11 @@ def draw_highlight():
         c, r = selected_pos
         cx, cy = grid_to_pixel(c, r)
         pygame.draw.circle(screen, (0, 0, 255), (cx, cy), PIECE_RADIUS + 4, 2)
+    # --- INVALID MOVE FLASH (red ring on target square) ---
+    if invalid_flash_pos and time.time() < invalid_flash_expiry:
+        fc, fr = invalid_flash_pos
+        fx, fy = grid_to_pixel(fc, fr)
+        pygame.draw.circle(screen, (220, 0, 0), (fx, fy), PIECE_RADIUS + 6, 4)
 
 def calibrate_perspective_camera(cap, save_path):
     if config.DRY_RUN: return 
@@ -293,6 +317,7 @@ def piece_str_to_sound(piece_str):
 
 def reset_game():
     global board, turn, game_over, winner, last_move, selected_pos, r_captured, b_captured, move_history, last_sync_time
+    global status_message, status_expiry, invalid_flash_pos, invalid_flash_expiry
     board = xiangqi.get_board()
     turn = "r"
     game_over = False
@@ -303,7 +328,24 @@ def reset_game():
     b_captured = []
     move_history = []
     last_sync_time = time.time()
+    status_message = ""
+    status_expiry  = 0.0
+    invalid_flash_pos = None
+    invalid_flash_expiry = 0.0
     print("[GAME] 🔄 New game started!")
+
+def set_status(msg, color=(200, 0, 0), duration=2.5):
+    """Show a timed message on screen."""
+    global status_message, status_color, status_expiry
+    status_message = msg
+    status_color   = color
+    status_expiry  = time.time() + duration
+
+def set_invalid_flash(col, row, duration=0.6):
+    """Flash the target square red briefly."""
+    global invalid_flash_pos, invalid_flash_expiry
+    invalid_flash_pos    = (col, row)
+    invalid_flash_expiry = time.time() + duration
 
 def handle_game_over(the_winner):
     global game_over, winner
@@ -317,6 +359,7 @@ def handle_game_over(the_winner):
 def process_human_move(src, dst, p_name):
     global board, last_move, turn
     print(f"[HUMAN] ✅ Moved: {p_name} {src}->{dst}")
+    set_status("✅  Move accepted — AI thinking...", color=(0, 120, 0), duration=5.0)
     key = ai_book.board_to_key(board)
     move_history.append({"turn": "r", "key": key, "src": src, "dst": dst})
     
@@ -326,13 +369,7 @@ def process_human_move(src, dst, p_name):
     board, _ = xiangqi.make_temp_move(board, (src, dst))
     last_move = (src, dst)
     
-    attacker_sound = piece_str_to_sound(p_name)
-    if cap_p != ".":
-        target_sound = piece_str_to_sound(cap_p)
-        if attacker_sound and target_sound:
-            sound_player.play_capture_sound(attacker_sound, target_sound)
-    else:
-        if attacker_sound: sound_player.play_move_sound(attacker_sound)
+
 
     if xiangqi.get_king_pos("b", board) is None: handle_game_over("r")
     else: turn = "b"
@@ -381,6 +418,9 @@ while running:
                             selected_pos = None
                         else:
                             print(f"Invalid move: {src}->{dst}")
+                            set_status("❌  Invalid move!", color=(180, 0, 0))
+                            set_invalid_flash(dst[0], dst[1])
+                            selected_pos = None
 
     # --- LOGIC CAMERA ---
     if not ALLOW_MOUSE_MOVE and cap is not None:
@@ -435,7 +475,10 @@ while running:
                     src, dst, p_name = valid_move
                     if xiangqi.is_valid_move(src, dst, board, "r"):
                         process_human_move(src, dst, p_name)
-                    else: print(f"[IGN] ⚠️ Detected {src}->{dst} but INVALID MOVE")
+                    else:
+                        print(f"[IGN] ⚠️ Detected {src}->{dst} but INVALID MOVE")
+                        set_status("❌  Invalid move detected by camera!", color=(180, 0, 0))
+                        set_invalid_flash(dst[0], dst[1])
 
     # ==========================================
     # --- AI TURN (ĐÃ SỬA LỖI LẶP) ---
@@ -550,14 +593,6 @@ while running:
 
                 robot_success = True 
                 
-                # Xử lý âm thanh chung
-                attacker_sound = piece_str_to_sound(board[s[1]][s[0]])
-                if is_cap:
-                    target_sound = piece_str_to_sound(cap_p)
-                    if attacker_sound and target_sound:
-                        sound_player.play_capture_sound(attacker_sound, target_sound)
-                else:
-                    if attacker_sound: sound_player.play_move_sound(attacker_sound)
 
                 # Thực hiện nước đi
                 if config.DRY_RUN:

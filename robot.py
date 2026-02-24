@@ -171,7 +171,7 @@ class FR5Robot:
             print(f"[ROBOT] DRY Gripper (SetToolDO) -> ID={self.gripper_do_id}, val={val}")
             time.sleep(0.3)
             return 0 # Giả lập thành công
-        
+
         err = self.robot.SetToolDO(
             id=self.gripper_do_id,
             status=val, # val sẽ là 1 (Đóng) hoặc 0 (Mở) từ config
