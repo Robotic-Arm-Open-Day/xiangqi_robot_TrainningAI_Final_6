@@ -10,6 +10,7 @@ import traceback
 import json
 import math
 import random
+import threading
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -99,6 +100,12 @@ status_expiry  = 0.0         # time.time() after which it disappears
 invalid_flash_pos = None     # (col, row) to flash red on invalid move
 invalid_flash_expiry = 0.0
 
+# --- AI THREAD STATE ---
+ai_thread        = None       # background thread running pick_best_move
+ai_result        = None       # move returned by AI thread
+ai_thinking      = False      # True while thread is running
+ai_think_start   = 0.0        # time the thread was launched (for dot animation)
+
 # --- ROBOT & CAMERA CONFIG ---
 robot = FR5Robot()
 
@@ -106,6 +113,7 @@ robot = FR5Robot()
 try:
     if not config.DRY_RUN:
         robot.connect()
+        robot.go_to_home_chess()   # ← go to HOMECHESS on startup
     else:
         print("[MAIN] DRY_RUN: Skipping physical robot connection.")
         robot.connected = False  # Giả lập trạng thái
@@ -230,11 +238,24 @@ def draw_ui():
         padding  = 8
         bg_rect  = msg_surf.get_rect(centerx=SCREEN_WIDTH // 2, top=32)
         bg_rect.inflate_ip(padding * 2, padding * 2)
-        # semi-transparent background pill
         bg_surf  = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
         bg_surf.fill((*status_color, 200))
         screen.blit(bg_surf, bg_rect.topleft)
         screen.blit(msg_surf, msg_surf.get_rect(center=bg_rect.center))
+
+    # --- AI THINKING BANNER ---
+    if ai_thinking:
+        dots = "." * (int(time.time() - ai_think_start) % 4)
+        elapsed = time.time() - ai_think_start
+        think_msg = f"🤖  AI is thinking{dots}  ({elapsed:.1f}s)"
+        think_surf = UI_FONT.render(think_msg, True, (255, 255, 255))
+        padding = 10
+        bg_rect = think_surf.get_rect(centerx=SCREEN_WIDTH // 2, top=8)
+        bg_rect.inflate_ip(padding * 2, padding * 2)
+        bg_surf = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+        bg_surf.fill((20, 100, 20, 210))
+        screen.blit(bg_surf, bg_rect.topleft)
+        screen.blit(think_surf, think_surf.get_rect(center=bg_rect.center))
 
 def draw_pieces():
     for r in range(NUM_ROWS):
@@ -407,6 +428,7 @@ def piece_str_to_sound(piece_str):
 def reset_game():
     global board, turn, game_over, winner, last_move, selected_pos, r_captured, b_captured, move_history, last_sync_time
     global status_message, status_expiry, invalid_flash_pos, invalid_flash_expiry
+    global ai_thread, ai_result, ai_thinking, ai_think_start
     board = xiangqi.get_board()
     turn = "r"
     game_over = False
@@ -421,6 +443,10 @@ def reset_game():
     status_expiry  = 0.0
     invalid_flash_pos = None
     invalid_flash_expiry = 0.0
+    ai_thread = None
+    ai_result = None
+    ai_thinking = False
+    ai_think_start = 0.0
     print("[GAME] 🔄 New game started!")
 
 def set_status(msg, color=(200, 0, 0), duration=2.5):
@@ -571,161 +597,139 @@ while running:
                         set_invalid_flash(dst[0], dst[1])
 
     # ==========================================
-    # --- AI TURN (ĐÃ SỬA LỖI LẶP) ---
-    # ==========================================
-    # ==========================================
-    # --- AI TURN (ĐÃ SỬA LỖI: CHECK AN TOÀN) ---
+    # --- AI TURN (THREADED — NON-BLOCKING UI) ---
     # ==========================================
     if turn == "b" and not game_over:
-        
-        # --- [NEW] CHỐT CHẶN AN TOÀN: KIỂM TRA LẠI CAMERA TRƯỚC KHI NGHĨ ---
-        # Mục đích: Đảm bảo AI không bao giờ đánh dựa trên bàn cờ cũ
-        if cap is not None and not config.DRY_RUN:
-             # Lấy dữ liệu mới nhất từ camera
-             ret, frame_check = cap.read()
-             if ret:
-                 try:
-                     frame_check_rgb = cv2.cvtColor(frame_check, cv2.COLOR_BGR2RGB)  # BGR→RGB for YOLO
-                     # Quét lại bàn cờ
-                     results = model.predict(frame_check_rgb, conf=0.35, iou=0.45, verbose=False)
-                     detections_check = []
-                     for box in results[0].boxes:
-                         cls = int(box.cls[0])
-                         if cls in CLASS_ID_TO_INTERNAL_NAME:
-                             x1, y1, x2, y2 = map(int, box.xyxy[0])
-                             detections_check.append((cls, (x1, y1, x2, y2)))
-                     
-                     M_check = np.load(str(PERSPECTIVE_PATH))
-                     cam_grid_now = detections_to_grid_occupancy(detections_check, M_check)
-                     
-                     # Đếm số quân cờ trong mỗi bàn cờ để validation
-                     def count_pieces(grid):
-                         count = {"r": 0, "b": 0, "total": 0}
-                         for r in range(NUM_ROWS):
-                             for c in range(NUM_COLS):
-                                 if grid[r][c] != ".":
-                                     count["total"] += 1
-                                     if grid[r][c].startswith("r"):
-                                         count["r"] += 1
-                                     elif grid[r][c].startswith("b"):
-                                         count["b"] += 1
-                         return count
-                     
-                     board_count = count_pieces(board)
-                     cam_count = count_pieces(cam_grid_now)
-                     
-                     # So sánh: Nếu bàn cờ ảo khác bàn cờ thật -> KIỂM TRA TRƯỚC KHI ĐỒNG BỘ
-                     diff_count = 0
-                     diff_details = []
-                     for r in range(NUM_ROWS):
-                         for c in range(NUM_COLS):
-                             if board[r][c] != cam_grid_now[r][c]:
-                                 if cam_grid_now[r][c] != ".":
-                                     diff_count += 1
-                                     diff_details.append((c, r, board[r][c], cam_grid_now[r][c]))
-                     
-                     # VALIDATION: Chỉ đồng bộ khi:
-                     # 1. Số khác biệt hợp lý (≤ 4) - tránh nhiễu
-                     # 2. Số quân cờ không quá chênh lệch (≤ 2 quân)
-                     # 3. Cả hai bên đều có quân cờ (tránh trường hợp camera nhận diện sai hoàn toàn)
-                     piece_diff = abs(board_count["total"] - cam_count["total"])
-                     
-                     if diff_count > 0:
-                         print(f"⚠️ [SAFETY] Detected {diff_count} position differences. Board: {board_count['total']} pieces, Camera: {cam_count['total']} pieces")
 
-                         # Chỉ đồng bộ khi thỏa mãn điều kiện
-                         if diff_count <= 4 and piece_diff <= 2 and cam_count["r"] > 0 and cam_count["b"] > 0:
-                             print(f"✅ [SAFETY] Valid conditions. Syncing from camera...")
-                             # Copy bàn cờ camera vào não AI
-                             board = [row[:] for row in cam_grid_now]
-                             draw_pieces() # Vẽ lại ngay cho người xem thấy
-                             pygame.display.flip()
-                         else:
-                             print(f"⚠️ [SAFETY] Skipping sync - Difference too large or invalid (diff={diff_count}, piece_diff={piece_diff}, r={cam_count['r']}, b={cam_count['b']})")
-                             # KHÔNG đồng bộ - giữ nguyên bàn cờ ảo để tránh làm sai
-                         
-                 except Exception as e:
-                     print(f"Camera safety check error: {e}")
-        # -------------------------------------------------------------------
+        # --- STEP 1: SPAWN AI THREAD (only once per turn) ---
+        if not ai_thinking and ai_thread is None:
+            # Camera safety-check before AI thinks (real mode only)
+            if cap is not None and not config.DRY_RUN:
+                try:
+                    ret, frame_check = cap.read()
+                    if ret:
+                        frame_check_rgb = cv2.cvtColor(frame_check, cv2.COLOR_BGR2RGB)
+                        results = model.predict(frame_check_rgb, conf=0.35, iou=0.45, verbose=False)
+                        detections_check = []
+                        for box in results[0].boxes:
+                            cls = int(box.cls[0])
+                            if cls in CLASS_ID_TO_INTERNAL_NAME:
+                                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                                detections_check.append((cls, (x1, y1, x2, y2)))
+                        M_check = np.load(str(PERSPECTIVE_PATH))
+                        cam_grid_now = detections_to_grid_occupancy(detections_check, M_check)
 
-        print(f"[AI] Thinking...")
-        pygame.display.flip()
-        # ... (Code cũ của AI ở dưới giữ nguyên) ...
-        pygame.display.flip()
-        try:
-            best = ai.pick_best_move(board, "b")
-            
-            # --- [XỬ LÝ LẶP] Panic Mode: Random move nếu AI bị kẹt ---
-            if best:
-                try: s, d = best
-                except: s, d = best[0], best[1]
-                
-                # Check lặp 3 lần
-                if len(move_history) > 8:
-                    last_srcs = [m['src'] for m in move_history[-6:]]
-                    if last_srcs.count(s) >= 3:
-                        print(f"⚠️ AI DETECTED LOOP ({s}->{d}) -> ACTIVATING PANIC MODE (Random Move)!")
-                        valid_moves = xiangqi.find_all_valid_moves("b", board)
-                        if valid_moves:
-                            best = random.choice(valid_moves)
-                            s, d = best
-                            print(f"👉 Alternative move: {s}->{d}")
-            # --------------------------------------------------------
+                        def count_pieces(grid):
+                            count = {"r": 0, "b": 0, "total": 0}
+                            for r in range(NUM_ROWS):
+                                for c in range(NUM_COLS):
+                                    if grid[r][c] != ".":
+                                        count["total"] += 1
+                                        if grid[r][c].startswith("r"): count["r"] += 1
+                                        elif grid[r][c].startswith("b"): count["b"] += 1
+                            return count
 
-            if best:
-                try: s, d = best
-                except: s, d = best[0], best[1]
+                        board_count = count_pieces(board)
+                        cam_count   = count_pieces(cam_grid_now)
+                        diff_count  = sum(1 for r in range(NUM_ROWS) for c in range(NUM_COLS)
+                                          if board[r][c] != cam_grid_now[r][c] and cam_grid_now[r][c] != ".")
+                        piece_diff  = abs(board_count["total"] - cam_count["total"])
 
-                key = ai_book.board_to_key(board)
-                move_history.append({"turn": "b", "key": key, "src": s, "dst": d})
-                cap_p = board[d[1]][d[0]]
-                is_cap = cap_p != "."
-                if is_cap: r_captured.append(cap_p)
-
-                robot_success = True 
-                
-
-                # Thực hiện nước đi
-                if config.DRY_RUN:
-                    pass # Chỉ log, không làm gì
-                else:
-                    print(f"[AI] Robot executing move: {s}->{d}")
-                    if robot.connected:
-                        try:
-                            robot.move_piece(s[0], s[1], d[0], d[1], is_cap)
-                        except Exception as e:
-                            # --- CODE SỬA: BỎ QUA LỖI 112 ĐỂ TRÁNH LẶP ---
-                            error_str = str(e)
-                            print(f"⚠️ Robot reported error: {error_str}")
-
-                            # Nếu lỗi chứa "112" (Lỗi kẹt khớp) hoặc "MoveCart" 
-                            # nghĩa là robot đã gắp thả xong nhưng không về được Home.
-                            # -> Ta chấp nhận nước đi này là THÀNH CÔNG (True).
-                            if "112" in error_str or "MoveCart" in error_str:
-                                print("✅ Light error (home return stuck). Still counting as successful move!")
-                                robot_success = True
+                        if diff_count > 0:
+                            print(f"⚠️ [SAFETY] {diff_count} diffs, board={board_count['total']}, cam={cam_count['total']}")
+                            if diff_count <= 4 and piece_diff <= 2 and cam_count["r"] > 0 and cam_count["b"] > 0:
+                                print("✅ [SAFETY] Syncing from camera...")
+                                board = [row[:] for row in cam_grid_now]
                             else:
-                                # Các lỗi khác (Mất kết nối, va chạm mạnh...) thì mới báo lỗi thật
-                                print(f"❌ [CRITICAL] ROBOT CRITICAL ERROR, STOPPING GAME.")
-                                robot_success = False
-                                time.sleep(2)
+                                print(f"⚠️ [SAFETY] Skipping sync (diff={diff_count}, piece_diff={piece_diff})")
+                except Exception as e:
+                    print(f"Camera safety check error: {e}")
 
-                if robot_success:
-                    board, _ = xiangqi.make_temp_move(board, best)
-                    last_move = best
-                    if xiangqi.get_king_pos('r', board) is None: handle_game_over('b') 
-                    else: 
-                        turn = 'r'
-                        print("[GAME] Your turn..."); last_sync_time = time.time() + 4.0
+            # Capture board snapshot for the thread
+            board_snapshot = [row[:] for row in board]
+            ai_result = None
+            ai_thinking = True
+            ai_think_start = time.time()
+
+            def _ai_worker():
+                global ai_result
+                try:
+                    ai_result = ai.pick_best_move(board_snapshot, "b")
+                except Exception as e:
+                    print(f"[AI Thread] Error: {e}")
+                    traceback.print_exc()
+                    ai_result = None
+
+            ai_thread = threading.Thread(target=_ai_worker, daemon=True)
+            ai_thread.start()
+            print("[AI] 🧵 Thinking thread started...")
+
+        # --- STEP 2: WHILE THINKING — keep UI alive ---
+        elif ai_thinking and ai_thread is not None:
+            if not ai_thread.is_alive():
+                # Thread finished — process result
+                ai_thinking = False
+                ai_thread = None
+                best = ai_result
+                ai_result = None
+
+                # --- Loop detection: random move if stuck ---
+                if best:
+                    try: s, d = best
+                    except: s, d = best[0], best[1]
+                    if len(move_history) > 8:
+                        last_srcs = [m['src'] for m in move_history[-6:]]
+                        if last_srcs.count(s) >= 3:
+                            print(f"⚠️ AI LOOP DETECTED ({s}->{d}) -> PANIC MODE!")
+                            valid_moves = xiangqi.find_all_valid_moves("b", board)
+                            if valid_moves:
+                                best = random.choice(valid_moves)
+                                s, d = best
+                                print(f"👉 Alternative move: {s}->{d}")
+
+                if best:
+                    try: s, d = best
+                    except: s, d = best[0], best[1]
+
+                    key = ai_book.board_to_key(board)
+                    move_history.append({"turn": "b", "key": key, "src": s, "dst": d})
+                    cap_p = board[d[1]][d[0]]
+                    is_cap = cap_p != "."
+                    if is_cap: r_captured.append(cap_p)
+
+                    robot_success = True
+
+                    if not config.DRY_RUN:
+                        print(f"[AI] Robot executing move: {s}->{d}")
+                        if robot.connected:
+                            try:
+                                robot.move_piece(s[0], s[1], d[0], d[1], is_cap)
+                            except Exception as e:
+                                error_str = str(e)
+                                print(f"⚠️ Robot error: {error_str}")
+                                if "112" in error_str or "MoveCart" in error_str:
+                                    print("✅ Light error — counting as successful.")
+                                    robot_success = True
+                                else:
+                                    print("❌ [CRITICAL] Robot critical error, stopping game.")
+                                    robot_success = False
+                                    time.sleep(2)
+
+                    if robot_success:
+                        board, _ = xiangqi.make_temp_move(board, best)
+                        last_move = best
+                        if xiangqi.get_king_pos('r', board) is None:
+                            handle_game_over('b')
+                        else:
+                            turn = 'r'
+                            set_status("Your turn!", color=(0, 100, 180), duration=3.0)
+                            print("[GAME] Your turn...")
+                            last_sync_time = time.time() + 4.0
+                    else:
+                        print("⚠️ Skipping board update due to robot error.")
                 else:
-                    print("⚠️ SKIPPING BOARD UPDATE DUE TO ROBOT ERROR.")
-            else:
-                print("[AI] No moves available -> AI Lost")
-                handle_game_over("r")
-        except Exception as e:
-            print(f"AI Error: {e}")
-            traceback.print_exc()
-            turn = "r" # Trả turn để tránh treo game
+                    print("[AI] No moves available -> AI Lost")
+                    handle_game_over("r")
 
     if game_over:
         msg = "AI WINS (SAVED)" if winner == "b" else "YOU WIN (NOT SAVED)"

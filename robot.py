@@ -139,7 +139,29 @@ class FR5Robot:
         print("[ROBOT] Đang di chuyển về vị trí chờ (Idle)...")
         pose = [config.IDLE_X, config.IDLE_Y, config.IDLE_Z] + config.ROTATION
         self.movej_pose(pose)
-    
+
+    def go_to_home_chess(self):
+        """Đưa robot về vị trí HOMECHESS đã dạy trên FR3."""
+        print("[ROBOT] Moving to HOMECHESS position...")
+        if self.dry:
+            print("[ROBOT] DRY RUN - skipping HOMECHESS move")
+            return
+        if self.robot is None:
+            print("[ROBOT] Not connected, cannot go to HOMECHESS")
+            return
+        try:
+            err, data = self.robot.GetRobotTeachingPoint("HOMECHESS")
+            if err != 0:
+                print(f"[ROBOT] Could not read HOMECHESS point (err={err}), falling back to idle home")
+                self.go_to_idle_home()
+                return
+            pose = list(data[:6])  # [x, y, z, rx, ry, rz]
+            self.movej_pose(pose)
+            print("[ROBOT] ✅ Reached HOMECHESS position.")
+        except Exception as e:
+            print(f"[ROBOT] go_to_home_chess error: {e}, falling back to idle home")
+            self.go_to_idle_home()
+
     def movel_pose(self, pose, speed=None):
         """Di chuyển thẳng (ĐÃ SỬA: Dùng MoveCart thay vì MoveL)"""
         vel = speed or self.default_vel
@@ -245,9 +267,9 @@ class FR5Robot:
 
         # 3. Đặt quân ở đích
         self.place_at(d_col, d_row)
-        
-        self.go_to_idle_home() # Đưa robot về góc chờ
-        
+
+        self.go_to_home_chess()  # Return to HOMECHESS taught position
+
         print("[ROBOT] Hoàn tất di chuyển.")
 
     def load_perspective(self, path):

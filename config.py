@@ -28,15 +28,15 @@ ROTATION = [89.658,-0.394, 174.148]
 
 # Kết nối Robot
 ROBOT_IP = "192.168.58.2"
-DRY_RUN = False # Đổi thành True nếu muốn test code mà không cần bật Robot
+DRY_RUN = True # Đổi thành True nếu muốn test code mà không cần bật Robot
 
 # Camera index (0 = built-in webcam, 1 = USB cam, etc.)
 # main.py will auto-try 0, 1, 2 if this index fails.
 VIDEO_SOURCE = 1
 
 # --- THÔNG SỐ AI ---
-AI_THINK_TIME = 5.0  # [QUAN TRỌNG] Thời gian suy nghĩ tối đa (giây)
-AI_DEPTH = 3         # Độ sâu mặc định (sẽ bị ghi đè bởi logic tự động)
+AI_THINK_TIME = 19.5  # Time per move in seconds — AI gets 19s after subtracting TIME_BUFFER (0.5)
+AI_DEPTH = 30          # Độ sâu mặc định (sẽ bị ghi đè bởi logic tự động)
 
 # Giá trị quân cờ (Dùng cho hàm đánh giá)
 PIECE_VALUES = {
