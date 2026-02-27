@@ -28,7 +28,7 @@ ROTATION = [89.658,-0.394, 174.148]
 
 # Kết nối Robot
 ROBOT_IP = "192.168.58.2"
-DRY_RUN = True # Đổi thành True nếu muốn test code mà không cần bật Robot
+DRY_RUN = False # Đổi thành True nếu muốn test code mà không cần bật Robot
 
 # Camera index (0 = built-in webcam, 1 = USB cam, etc.)
 # main.py will auto-try 0, 1, 2 if this index fails.

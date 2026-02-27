@@ -7,7 +7,7 @@ import time
 # ==========================================
 # CẤU HÌNH CAMERA
 # ==========================================
-VIDEO_SOURCE = 0   # Index camera (Thử 0 nếu không lên hình)
+VIDEO_SOURCE = 1   # Index camera (Thử 0 nếu không lên hình)
 SAVE_PATH = "perspective.npy"
 
 print(f"📷 Đang mở Camera {VIDEO_SOURCE}...")
