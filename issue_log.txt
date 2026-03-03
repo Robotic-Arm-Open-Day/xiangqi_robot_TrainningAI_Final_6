@@ -1,0 +1,16 @@
+--- MÔ TẢ LỖI/YÊU CẦU CHỈNH SỬA ---
+
+1. Lỗi/Bất cập:
+> Nhận diện realtime liên tục dễ gây sai số hoặc lag, khó kiểm soát việc tay người đang che khuất bàn cờ. Hệ thống nhận diện bị trùng lặp hoặc không đồng bộ được UI.
+
+2. Yêu cầu sửa lại bằng Logic Snapshot tĩnh (Xử lý từng bước):
+> - LƯU Ý QUAN TRỌNG: Người chơi CẦM QUÂN ĐỎ và LUÔN ĐI TRƯỚC (Đi đầu tiên), sau đó mới tới AI (Quân Đen).
+> - Khi bắt đầu lượt người: Chụp ảnh bàn cờ (T1) -> Quét ra vị trí các quân cờ hiện tại -> Lưu vào bộ nhớ (Bàn cờ ảo).
+> - Đợi 1 giây (để tay người rời khỏi camera/ổn định hình ảnh).
+> - Chụp ảnh lần nữa (T2). Khớp hình ảnh T2 với hệ thống.
+> - So sánh T1 và T2: nếu có sự thay đổi vị trí quân cờ -> Cập nhật bàn cờ thật vào bộ nhớ.
+> - Xóa ảnh đã chụp trước đó đi để bảo đảm RAM không bị tràn.
+> - Sau khi cập nhật (người dùng đã chốt đi 1 nước cờ) -> Đổi lượt cho AI.
+> - AI dựa vào dữ liệu của bàn cờ đang có trong hệ thống (ảnh T2) để cho ra nước cờ của nó.
+> - Sau khi tay robot đi 1 nước cờ -> Chụp lại 1 tấm -> Nhớ cập nhật lại 1 lần nữa bàn cờ trong hệ thống làm gốc.
+> - Lặp lại vòng lặp.

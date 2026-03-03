@@ -175,10 +175,14 @@ if not config.DRY_RUN:
             print(f"⚠️ Camera index {_idx} failed, trying next...")
     if cap is None:
         print("❌ Lỗi: Không mở được Camera! Kiểm tra lại kết nối webcam.")
+        sys.exit() # Added sys.exit() for consistency with other error handling
     else:
-        # Must match calibrate_tool.py resolution so perspective.npy coordinates align
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        # Ép khung hình về 1280x720 chuẩn
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        actual_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        print(f"📷 Actual camera resolution set to: {actual_w} x {actual_h}")
 
 PERSPECTIVE_PATH = Path(__file__).parent / "perspective.npy"
 CLASS_ID_TO_INTERNAL_NAME = {
@@ -490,11 +494,78 @@ def process_human_move(src, dst, p_name):
     else: turn = "b"
 
 # ==========================================
+# 5. SNAPSHOT MOVE DETECTION
+# ==========================================
+
+def get_snapshot_board():
+    """Takes a single snapshot, runs YOLO, and returns a 10x9 board of detected piece names (or '.')."""
+    if cap is None or model is None:
+        return None
+        
+    print("[CAM] 📸 Đang chụp Snapshot bàn cờ...")
+    # Clear the buffer to get the freshest frame
+    for _ in range(5):
+        cap.grab()
+        
+    ret, frame = cap.read()
+    if not ret:
+        return None
+        
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = model.predict(frame_rgb, conf=0.35, iou=0.35, imgsz=1280, verbose=False)
+    
+    detections = []
+    for box in results[0].boxes:
+        cls = int(box.cls[0])
+        if cls in CLASS_ID_TO_INTERNAL_NAME:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            detections.append((cls, (x1, y1, x2, y2)))
+            
+    # View port log
+    for (cls, (x1, y1, x2, y2)) in detections:
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    cv2.imshow("Camera Monitor", frame)
+    cv2.waitKey(1)
+            
+    M_cam = np.load(str(PERSPECTIVE_PATH)) if os.path.exists(str(PERSPECTIVE_PATH)) else None
+    if M_cam is None: return None
+    
+    cam_grid = detections_to_grid_occupancy(detections, M_cam)
+    return cam_grid
+
+def compare_snapshots(old_b, new_b):
+    """Compares two 10x9 virtual board states and returns (src, dst, piece) of the moved red piece, or (None, None, None)."""
+    missing_reds = []
+    new_reds = []
+    
+    for r in range(NUM_ROWS):
+        for c in range(NUM_COLS):
+            old_p = old_b[r][c]
+            new_p = new_b[r][c]
+            if old_p != new_p:
+                if old_p.startswith("r") and (not new_p.startswith("r")):
+                    missing_reds.append((c, r, old_p))
+                elif (not old_p.startswith("r")) and new_p.startswith("r"):
+                    new_reds.append((c, r, new_p))
+                    
+    # Basic logic: 1 piece missing, 1 piece appeared -> It's a move
+    if len(missing_reds) == 1 and len(new_reds) == 1:
+        src = (missing_reds[0][0], missing_reds[0][1])
+        dst = (new_reds[0][0], new_reds[0][1])
+        piece = missing_reds[0][2]
+        # Ignore piece type mismatches if YOLO misclassified the destination box; rely on origin piece type.
+        return src, dst, piece
+    return None, None, None
+
+baseline_snapshot = None  # Stores the T1 snapshot board
+waiting_for_snapshot = False # Flag to trigger T2 snapshot interval
+
+# ==========================================
 # 5. VÒNG LẶP CHÍNH
 # ==========================================
 running = True
 last_sync_time = time.time()
-SYNC_INTERVAL = 1.5
+SYNC_INTERVAL = 3.0   # seconds between board-state sync checks
 clock = pygame.time.Clock()
 
 while running:
@@ -537,64 +608,50 @@ while running:
                             set_invalid_flash(dst[0], dst[1])
                             selected_pos = None
 
-    # --- LOGIC CAMERA ---
-    if not ALLOW_MOUSE_MOVE and cap is not None:
-        ret, frame = cap.read()
-        detections = []
-        if ret:
-            try:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # BGR→RGB for YOLO
-                results = model.predict(frame_rgb, conf=0.35, iou=0.45, verbose=False)
-                for box in results[0].boxes:
-                    cls = int(box.cls[0])
-                    if cls in CLASS_ID_TO_INTERNAL_NAME:
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        detections.append((cls, (x1, y1, x2, y2)))
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                
-                # Debug Grid
-                if os.path.exists(str(PERSPECTIVE_PATH)):
-                    M_debug = np.load(str(PERSPECTIVE_PATH))
-                    M_inv = np.linalg.inv(M_debug)
-                    for r_debug in range(NUM_ROWS):
-                        for c_debug in range(NUM_COLS):
-                            pt_grid = np.array([[[float(c_debug), float(r_debug)]]], dtype=np.float32)
-                            pt_pixel = cv2.perspectiveTransform(pt_grid, M_inv)[0][0]
-                            cv2.circle(frame, (int(pt_pixel[0]), int(pt_pixel[1])), 3, (0, 0, 255), -1)
-                cv2.imshow("Camera Monitor", frame)  # frame stays BGR for cv2.imshow
-            except: pass
+    # --- LOGIC CAMERA (SNAPSHOT TĨNH) ---
+    if not ALLOW_MOUSE_MOVE and cap is not None and not game_over:
         if cv2.waitKey(1) == ord("q"): running = False
 
-        if time.time() - last_sync_time > SYNC_INTERVAL and turn == "r" and not game_over:
-            last_sync_time = time.time()
-            M_cam = np.load(str(PERSPECTIVE_PATH)) if os.path.exists(str(PERSPECTIVE_PATH)) else None
-            if M_cam is not None:
-                cam_grid = detections_to_grid_occupancy(detections, M_cam)
-                disappeared = []; appeared = []
-                for r in range(NUM_ROWS):
-                    for c in range(NUM_COLS):
-                        if board[r][c] != "." and (cam_grid[r][c] == "." or cam_grid[r][c] != board[r][c]):
-                            disappeared.append({"pos": (c, r), "piece": board[r][c]})
-                        if cam_grid[r][c] != "." and cam_grid[r][c] != board[r][c]:
-                            appeared.append({"pos": (c, r), "piece": cam_grid[r][c]})
+        if turn == "r":
+            # 1. Chụp ảnh cơ sở (T1) khi mới bắt đầu lượt
+            if baseline_snapshot is None:
+                baseline_snapshot = get_snapshot_board()
+                if baseline_snapshot:
+                    print("[SYNC] 🟢 Đã lưu Snapshot cơ sở (T1). Xin mời người chơi đi cờ...")
+                    last_sync_time = time.time()
+                    waiting_for_snapshot = False
 
-                valid_move = None
-                for app in appeared:
-                    for dis in disappeared:
-                        if app["piece"].startswith("r"):
-                            if dis["piece"] == app["piece"] and dis["pos"] != app["pos"]:
-                                valid_move = (dis["pos"], app["pos"], app["piece"])
-                                break
-                    if valid_move: break
-
-                if valid_move:
-                    src, dst, p_name = valid_move
-                    if xiangqi.is_valid_move(src, dst, board, "r"):
-                        process_human_move(src, dst, p_name)
-                    else:
-                        print(f"[IGN] ⚠️ Detected {src}->{dst} but INVALID MOVE")
-                        set_status("❌  Invalid move detected by camera!", color=(180, 0, 0))
-                        set_invalid_flash(dst[0], dst[1])
+            # 2. Định kỳ quét tìm sự thay đổi
+            if baseline_snapshot is not None:
+                # Nếu đang chờ T2 thì đợi 1s, nếu đang rảnh thì cứ 1.5s check 1 lần
+                delay_required = 1.0 if waiting_for_snapshot else 1.5
+                
+                if time.time() - last_sync_time > delay_required:
+                    last_sync_time = time.time()
+                    current_snap = get_snapshot_board()
+                    if current_snap:
+                        src, dst, piece = compare_snapshots(baseline_snapshot, current_snap)
+                        if src and dst:
+                            if not waiting_for_snapshot:
+                                print(f"👀 [CAMERA] Bàn cờ thay đổi ({src}->{dst}). Đợi 1s cho ổn định ảnh (T2)...")
+                                waiting_for_snapshot = True
+                            else:
+                                # Đây chính là T2!
+                                if xiangqi.is_valid_move(src, dst, board, "r"):
+                                    print(f"[HUMAN] ✅ Chốt nước đi tĩnh: {piece} {src}->{dst}")
+                                    process_human_move(src, dst, piece)
+                                    baseline_snapshot = None # Chốt xong thì xóa ảnh cũ
+                                    waiting_for_snapshot = False
+                                else:
+                                    print(f"[IGN] ⚠️ Nước đi không hợp lệ {src}->{dst}. Hủy chốt.")
+                                    waiting_for_snapshot = False
+                        else:
+                            waiting_for_snapshot = False
+                            
+        elif turn == "b":
+            # Đang lượt AI, phải xóa ảnh T1 để lượt người sau chụp lại T1 mới
+            baseline_snapshot = None
+            waiting_for_snapshot = False
 
     # ==========================================
     # --- AI TURN (THREADED — NON-BLOCKING UI) ---
@@ -603,47 +660,6 @@ while running:
 
         # --- STEP 1: SPAWN AI THREAD (only once per turn) ---
         if not ai_thinking and ai_thread is None:
-            # Camera safety-check before AI thinks (real mode only)
-            if cap is not None and not config.DRY_RUN:
-                try:
-                    ret, frame_check = cap.read()
-                    if ret:
-                        frame_check_rgb = cv2.cvtColor(frame_check, cv2.COLOR_BGR2RGB)
-                        results = model.predict(frame_check_rgb, conf=0.35, iou=0.45, verbose=False)
-                        detections_check = []
-                        for box in results[0].boxes:
-                            cls = int(box.cls[0])
-                            if cls in CLASS_ID_TO_INTERNAL_NAME:
-                                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                                detections_check.append((cls, (x1, y1, x2, y2)))
-                        M_check = np.load(str(PERSPECTIVE_PATH))
-                        cam_grid_now = detections_to_grid_occupancy(detections_check, M_check)
-
-                        def count_pieces(grid):
-                            count = {"r": 0, "b": 0, "total": 0}
-                            for r in range(NUM_ROWS):
-                                for c in range(NUM_COLS):
-                                    if grid[r][c] != ".":
-                                        count["total"] += 1
-                                        if grid[r][c].startswith("r"): count["r"] += 1
-                                        elif grid[r][c].startswith("b"): count["b"] += 1
-                            return count
-
-                        board_count = count_pieces(board)
-                        cam_count   = count_pieces(cam_grid_now)
-                        diff_count  = sum(1 for r in range(NUM_ROWS) for c in range(NUM_COLS)
-                                          if board[r][c] != cam_grid_now[r][c] and cam_grid_now[r][c] != ".")
-                        piece_diff  = abs(board_count["total"] - cam_count["total"])
-
-                        if diff_count > 0:
-                            print(f"⚠️ [SAFETY] {diff_count} diffs, board={board_count['total']}, cam={cam_count['total']}")
-                            if diff_count <= 4 and piece_diff <= 2 and cam_count["r"] > 0 and cam_count["b"] > 0:
-                                print("✅ [SAFETY] Syncing from camera...")
-                                board = [row[:] for row in cam_grid_now]
-                            else:
-                                print(f"⚠️ [SAFETY] Skipping sync (diff={diff_count}, piece_diff={piece_diff})")
-                except Exception as e:
-                    print(f"Camera safety check error: {e}")
 
             # Capture board snapshot for the thread
             board_snapshot = [row[:] for row in board]

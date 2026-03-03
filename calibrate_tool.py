@@ -10,11 +10,25 @@ import time
 VIDEO_SOURCE = 1   # Index camera (Thử 0 nếu không lên hình)
 SAVE_PATH = "perspective.npy"
 
-print(f"📷 Đang mở Camera {VIDEO_SOURCE}...")
-cap = cv2.VideoCapture(VIDEO_SOURCE, cv2.CAP_DSHOW)
-# Set độ phân giải cao để click cho chuẩn
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+print("📷 Đang tìm duyệt các Camera...")
+cap = None
+for _idx in [VIDEO_SOURCE, 0, 1, 2]:
+    _cap_try = cv2.VideoCapture(_idx, cv2.CAP_DSHOW)
+    if _cap_try.isOpened():
+        cap = _cap_try
+        print(f"✅ Camera opened at index {_idx}")
+        break
+    else:
+        _cap_try.release()
+        print(f"⚠️ Camera index {_idx} failed, trying next...")
+
+if cap is None:
+    print("❌ Lỗi: Không mở được Camera! Vui lòng thử cắm lại hoặc khởi động lại máy tính.")
+    exit()
+
+# Set độ phân giải chuẩn để khớp với main.py YOLO
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
 if not cap.isOpened():
     print("❌ Lỗi: Không mở được Camera! Hãy thử đổi VIDEO_SOURCE thành 0.")
