@@ -100,3 +100,9 @@ debug.log
 yolov8n.pt
 
 perspective.npy
+
+yolo26m.pt
+yolo26n.pt
+
+newdata/
+rawdata/
