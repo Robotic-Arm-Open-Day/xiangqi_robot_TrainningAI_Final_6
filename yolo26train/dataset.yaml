@@ -1,7 +1,7 @@
 path: ../chess_dataset
-train: images/train
-val: images/val
+train: train/images
+val: valid/images
 
 nc: 1
 names:
-  0: piece
+  - piece

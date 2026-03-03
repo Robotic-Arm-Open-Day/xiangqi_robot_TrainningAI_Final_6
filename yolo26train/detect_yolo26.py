@@ -11,15 +11,28 @@ from ultralytics import YOLO
 # ==========================================
 VIDEO_SOURCE  = 1          # Camera index
 DISPLAY_SCALE = 1.5        # Display zoom
-CONF          = 0.4        # Detection confidence threshold
-IOU           = 0.45       # NMS IoU threshold
+CONF          = 0.3        # Detection confidence threshold
+IOU           = 0.35       # NMS IoU threshold
 
-# Path to the newly trained YOLO26 model (relative to this script)
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH  = os.path.join(
-    _SCRIPT_DIR, "..", "runs", "detect", "chess_vision",
-    "yolo26_occupancy_run6", "weights", "best.pt"
-)
+# Path to the newly trained YOLO26 model — auto-selects latest run folder
+_SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
+_RUNS_BASE   = os.path.join(_SCRIPT_DIR, "..", "runs", "detect", "chess_vision")
+
+def _find_latest_run(base: str, prefix: str = "yolo26_occupancy_run") -> str:
+    """Return the weights/best.pt path from the most recently modified run folder."""
+    if not os.path.isdir(base):
+        return ""
+    candidates = [
+        d for d in os.listdir(base)
+        if d.startswith(prefix) and os.path.isdir(os.path.join(base, d))
+    ]
+    if not candidates:
+        return ""
+    # Sort by modification time, pick newest
+    candidates.sort(key=lambda d: os.path.getmtime(os.path.join(base, d)), reverse=True)
+    return os.path.join(base, candidates[0], "weights", "best.pt")
+
+MODEL_PATH = _find_latest_run(_RUNS_BASE)
 
 # ==========================================
 # LOAD MODEL
