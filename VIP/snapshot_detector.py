@@ -367,10 +367,21 @@ class SnapshotDetector:
             return src, dst, piece
 
         if len(valid_moves) > 1:
-            # Khi còn nhiều ứng viên, chọn nước GẦN NHẤT (Manhattan distance)
+            # Khi còn nhiều ứng viên, dùng pixel absdiff để chọn đúng ô đích
+            # (theo thiết kế gốc trong discussion_notes.txt — chính xác hơn Manhattan)
+            print(f"[SNAPSHOT] ⚠️ Ambiguous: {len(valid_moves)} valid moves — dùng pixel absdiff tiebreaker...")
+            dst_candidates = [(dst[0], dst[1]) for src, dst, piece, move_type in valid_moves]
+            best_dst = self._resolve_capture_ambiguity(dst_candidates, frame) if frame is not None else None
+            if best_dst is not None:
+                matched = [(s, d, p, mt) for s, d, p, mt in valid_moves if d == best_dst]
+                if matched:
+                    src, dst, piece, move_type = matched[0]
+                    print(f"[SNAPSHOT] ✅ Detected ({move_type}, pixel absdiff of {len(valid_moves)}): {piece} {src}→{dst}")
+                    return src, dst, piece
+            # Fallback về Manhattan nếu pixel absdiff thất bại
             best = min(valid_moves, key=lambda m: abs(m[0][0]-m[1][0]) + abs(m[0][1]-m[1][1]))
             src, dst, piece, move_type = best
-            print(f"[SNAPSHOT] ✅ Detected ({move_type}, closest of {len(valid_moves)}): {piece} {src}→{dst}")
+            print(f"[SNAPSHOT] ✅ Detected ({move_type}, Manhattan fallback of {len(valid_moves)}): {piece} {src}→{dst}")
             return src, dst, piece
 
         # === FALLBACK: Không có valid move qua occupancy grid ===

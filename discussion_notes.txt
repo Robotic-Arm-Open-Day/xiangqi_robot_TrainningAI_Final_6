@@ -202,3 +202,99 @@ def resolve_capture_ambiguity(prev_frame, curr_frame, candidate_squares, inv_mat
             actual_destination = (col, row)
 
     return actual_destination
+
+================================================================================
+
+# TÀI LIỆU MODULE: VIP/snapshot_detector.py
+# Cập nhật: 2026-03-04
+
+## Mô Tả Tổng Quát
+Module phát hiện nước đi của người chơi bằng cách so sánh 2 snapshot camera
+(T1: trước khi đi, T2: sau khi bấm SPACE). KHÔNG truy cập camera trực tiếp —
+nhận frame + detections từ CameraMonitor.
+
+Phụ thuộc:
+  - cv2 (OpenCV): perspective transform, absdiff
+  - perspective.npy: ma trận hiệu chỉnh camera (4 góc bàn cờ)
+  - xiangqi.py: validate nước đi theo luật cờ Tướng
+  - YOLO (1-class): chỉ detect "có quân" / "không có" — KHÔNG nhận diện màu/loại
+
+## Public API
+
+  capture_baseline(frame, detections)
+    → Lưu T1 snapshot: occupancy grid (10x9 bool) + raw frame BGR
+    → Gọi sau khi AI đi xong và bàn cờ đã ổn định
+
+  detect_move(frame, detections, board)
+    → Chụp T2, so sánh với T1, trả về (src, dst, piece_name)
+    → Gọi khi người chơi bấm SPACE
+    → board = bộ nhớ FEN biết quân nào ở đâu
+
+  has_baseline()    → Kiểm tra đã có T1 chưa
+  clear_baseline()  → Xóa T1 (khi reset game)
+  get_baseline_grid() → Lấy occupancy grid T1
+
+## Thuật Toán Phát Hiện Nước Đi (_compare_snapshots)
+
+4 lớp ưu tiên, xử lý từ trên xuống, trả về ngay khi tìm được kết quả:
+
+  [LỚP 1] valid_moves == 1
+    → Occupancy grid cho thấy đúng 1 cặp src/dst hợp lệ
+    → Return ngay (chắc chắn nhất)
+
+  [LỚP 2] valid_moves > 1 (Ambiguous)
+    → Dùng pixel absdiff tiebreaker: so sánh từng ô đích candidate
+    → Ô có thay đổi pixel lớn nhất = ô đích thật
+    → Fallback: Manhattan distance nếu frame=None hoặc absdiff thất bại
+
+  [LỚP 3] YOLO miss hoàn toàn — cả đỏ src VÀ đen dst đều biến mất
+    → Đúng 1 đỏ mất + đúng 1 đen mất → kết luận ngay (ăn quân 2 biến mất)
+
+  [LỚP 4] YOLO miss dst — chỉ thấy đỏ src biến mất
+    → Quét toàn bộ quân đen hợp lệ trên board (theo luật cờ)
+    → Pixel absdiff từng ô đen candidate → chọn ô thay đổi nhiều nhất
+    → Đây là "Blind Capture Resolution" theo thiết kế trong notes
+
+  [THẤT BẠI] Không tìm được → return (None, None, None)
+    → Main loop hiển thị lỗi, yêu cầu bấm SPACE lại
+
+## Kỹ Thuật Pixel Absdiff (_resolve_capture_ambiguity)
+
+  1. Load perspective.npy → tính inverse matrix (grid → pixel)
+  2. Với mỗi ô candidate (col, row):
+     a. Map tọa độ ô về bounding box pixel (_get_pixel_box_from_grid)
+     b. Crop vùng ô đó từ baseline_frame (T1) và curr_frame (T2)
+     c. Chuyển sang Grayscale (loại nhiễu ánh sáng màu)
+     d. cv2.absdiff → tính tổng pixel thay đổi (score)
+  3. Ô có score cao nhất = ô đích thực sự
+
+## Cập Nhật Lịch Sử
+
+  v1 (ban đầu): Chỉ có occupancy grid + Manhattan distance tiebreaker
+  v2 (2026-03-04): Thêm Blind Capture Resolution (pixel absdiff) cho lớp 4
+  v3 (2026-03-04): Thay Manhattan tiebreaker (lớp 2) bằng pixel absdiff
+                   → Đúng với thiết kế gốc trong discussion_notes.txt
+                   → Manhattan chỉ còn là safety fallback khi frame=None
+
+  LÝ DO THAY MANHATTAN BẰNG PIXEL ABSDIFF:
+
+  [1] Manhattan KHÔNG có trong thiết kế gốc
+      Discussion_notes.txt chỉ mô tả pixel absdiff để giải quyết ambiguity.
+      Manhattan được thêm vào ngoài kế hoạch, không có cơ sở lý thuyết.
+
+  [2] Manhattan dựa vào heuristic sai
+      Giả định "quân đi gần hơn = đúng hơn" không đúng với cờ Tướng.
+      Ví dụ: Xe (Rook) thường đi xa, Xe đi 6 ô thẳng là hoàn toàn bình thường.
+      Manhattan sẽ sai trong trường hợp này.
+
+  [3] Pixel absdiff dựa vào thực tế camera
+      Ô nào có quân đỏ đặt vào sẽ thay đổi pixel thực sự.
+      Không cần giả định — chỉ cần so sánh ảnh T1 và T2.
+
+  [4] Manhattan và pixel absdiff đều có điểm yếu
+      Manhattan: sai khi quân đi xa.
+      Pixel absdiff: nhạy với ánh sáng thay đổi, bóng tay.
+      → Giải pháp: dùng pixel absdiff làm chính,
+                   giữ Manhattan làm safety fallback (frame=None hoặc lỗi).
+
+================================================================================
