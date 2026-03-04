@@ -11,6 +11,9 @@ import json
 import math
 import random
 import threading
+import atexit
+import signal
+import subprocess
 from pathlib import Path
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -45,9 +48,32 @@ from robot import FR5Robot
 # ==========================================
 ALLOW_MOUSE_MOVE = config.DRY_RUN
 
-print(
-    f"\n=== MODE: {'🛠️ DRY RUN (MOUSE & LOG)' if config.DRY_RUN else '🤖 REAL RUN (CAMERA & ROBOT)'} ==="
-)
+_mode_label = '🛠️ DRY RUN (MOUSE & LOG)' if config.DRY_RUN else '🤖 REAL RUN (CAMERA & ROBOT)'
+print(f"\n=== MODE: {_mode_label} ===")
+
+# ==========================================
+# 0.5. KILL ZOMBIE PROCESSES TỪ LẦN CHẠY TRƯỚC
+# ==========================================
+def _kill_zombie_processes():
+    """Kill các process pikafish còn sót lại từ lần chạy trước."""
+    try:
+        # Tìm và kill các process pikafish zombie
+        result = subprocess.run(
+            ['tasklist', '/FI', 'IMAGENAME eq pikafish*', '/FO', 'CSV', '/NH'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.stdout.strip() and 'pikafish' in result.stdout.lower():
+            print("[CLEANUP] ⚠️ Phát hiện pikafish zombie process — đang kill...")
+            subprocess.run(
+                ['taskkill', '/F', '/IM', 'pikafish*'],
+                capture_output=True, timeout=5
+            )
+            print("[CLEANUP] ✅ Killed zombie pikafish processes.")
+            time.sleep(0.5)  # Đợi process tắt hẳn
+    except Exception as e:
+        print(f"[CLEANUP] ⚠️ Không thể kiểm tra zombie processes: {e}")
+
+_kill_zombie_processes()
 
 # ==========================================
 # 1. FEN CONVERSION FUNCTIONS
@@ -268,6 +294,17 @@ if not config.DRY_RUN:
         actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         print(f"📷 Actual camera resolution: {actual_w} x {actual_h}")
 
+        # Đăng ký atexit handler để LUÔN release camera khi thoát,
+        # kể cả khi thoát giữa lúc calibrate (trước try/finally block)
+        def _release_camera_atexit():
+            try:
+                if cap and cap.isOpened():
+                    cap.release()
+                    print("[ATEXIT] ✅ Camera released.")
+            except Exception:
+                pass
+        atexit.register(_release_camera_atexit)
+
 PERSPECTIVE_PATH = Path(__file__).parent / "perspective.npy"
 CLASS_ID_TO_INTERNAL_NAME = {
     0: "b_A", 1: "b_C", 2: "b_R", 3: "b_E", 4: "b_K", 5: "b_N", 6: "b_P",
@@ -306,8 +343,8 @@ if not config.DRY_RUN and cap is not None and model is not None:
 from snapshot_detector import SnapshotDetector
 snapshot_detector = None
 if not config.DRY_RUN and cap is not None and model is not None:
-    snapshot_detector = SnapshotDetector(cap, model, PERSPECTIVE_PATH, CLASS_ID_TO_INTERNAL_NAME)
-    print("[INIT] ✅ SnapshotDetector initialized.")
+    snapshot_detector = SnapshotDetector(PERSPECTIVE_PATH, CLASS_ID_TO_INTERNAL_NAME)
+    print("[INIT] ✅ SnapshotDetector initialized (no direct camera access).")
 
 # ==========================================
 # 4. HÀM HỖ TRỢ
@@ -334,139 +371,8 @@ def get_game_state():
     }
 
 
-# --- SNAPSHOT: Chụp 1 ảnh, detect occupancy ---
-def detections_to_grid_occupancy(detections, M):
-    """Convert YOLO detections → 10x9 grid ('occupied' / '.')"""
-    grid = [["." for _ in range(NUM_COLS)] for _ in range(NUM_ROWS)]
-    if M is None: return grid
-    
-    for cls_id, (x1, y1, x2, y2) in detections:
-        name = CLASS_ID_TO_INTERNAL_NAME.get(cls_id)
-        if not name: continue
-        
-        cx = (x1 + x2) / 2
-        cy = y1 + (y2 - y1) * 0.85
-        
-        try:
-            dst = cv2.perspectiveTransform(np.array([[[float(cx), float(cy)]]], dtype=np.float32), M)[0][0]
-            c, r = int(round(dst[0])), int(round(dst[1]))
-            if 0 <= c < NUM_COLS and 0 <= r < NUM_ROWS:
-                grid[r][c] = name  # Giữ tên quân nếu model 14 class
-        except: pass
-    return grid
-
-def get_snapshot_board():
-    """Chụp 1 snapshot, chạy YOLO, trả về occupancy grid 10x9."""
-    if cap is None or model is None:
-        return None
-        
-    print("[CAM] 📸 Chụp Snapshot bàn cờ...")
-    for _ in range(5):
-        cap.grab()
-        
-    ret, frame = cap.read()
-    if not ret:
-        return None
-        
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = model.predict(frame_rgb, conf=0.35, iou=0.35, imgsz=1280, verbose=False)
-    
-    detections = []
-    for box in results[0].boxes:
-        cls = int(box.cls[0])
-        if cls in CLASS_ID_TO_INTERNAL_NAME:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            detections.append((cls, (x1, y1, x2, y2)))
-            
-    # View port
-    for (cls, (x1, y1, x2, y2)) in detections:
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-    cv2.imshow("Camera Monitor", frame)
-    cv2.waitKey(1)
-            
-    M_cam = np.load(str(PERSPECTIVE_PATH)) if os.path.exists(str(PERSPECTIVE_PATH)) else None
-    if M_cam is None: return None
-    
-    return detections_to_grid_occupancy(detections, M_cam)
-
-def detect_move_from_snapshot(cam_grid):
-    """So sánh snapshot camera với board trong bộ nhớ.
-    
-    Trả về (src, dst, piece_name) hoặc (None, None, None).
-    Logic: So sánh quân ĐỎ giữa memory và camera:
-      - src: ô memory có quân đỏ nhưng camera KHÔNG thấy quân đỏ
-      - dst: ô memory KHÔNG có quân đỏ nhưng camera thấy quân đỏ
-    """
-    missing_reds = []  # Memory có quân đỏ, camera không thấy đỏ ở đó
-    new_reds = []      # Memory không có quân đỏ, camera thấy đỏ ở đó
-    
-    for r in range(NUM_ROWS):
-        for c in range(NUM_COLS):
-            mem_piece = board[r][c]
-            cam_piece = cam_grid[r][c]
-            
-            mem_is_red = mem_piece.startswith("r")
-            cam_is_red = cam_piece.startswith("r") if cam_piece != "." else False
-            
-            if mem_is_red and not cam_is_red:
-                # Quân đỏ biến mất khỏi ô này → có thể là src
-                missing_reds.append((c, r, mem_piece))
-            elif not mem_is_red and cam_is_red:
-                # Quân đỏ xuất hiện ở ô mới → có thể là dst
-                new_reds.append((c, r, cam_piece))
-    
-    # Debug log
-    print(f"[DETECT] missing_reds={len(missing_reds)}, new_reds={len(new_reds)}")
-    if missing_reds:
-        print(f"  missing: {[(c,r,p) for c,r,p in missing_reds]}")
-    if new_reds:
-        print(f"  new:     {[(c,r,p) for c,r,p in new_reds]}")
-    
-    # Pattern 1: Di chuyển thường — 1 quân đỏ mất, 1 quân đỏ xuất hiện
-    if len(missing_reds) == 1 and len(new_reds) == 1:
-        src = (missing_reds[0][0], missing_reds[0][1])
-        dst = (new_reds[0][0], new_reds[0][1])
-        piece = missing_reds[0][2]
-        return src, dst, piece
-    
-    # Pattern 2: Ăn quân đen — 1 quân đỏ mất ở src, quân đỏ thay thế quân đen ở dst
-    # Camera thấy đỏ ở vị trí cũ là đen → new_reds bắt được dst
-    # Nếu new_reds == 0, có thể camera nhận nhầm quân đỏ thành đen ở dst
-    if len(missing_reds) == 1 and len(new_reds) == 0:
-        src_c, src_r, piece = missing_reds[0]
-        # Tìm ô mà memory có quân đen nhưng camera thấy quân (có thể đỏ bị nhận nhầm)
-        candidates = []
-        for r in range(NUM_ROWS):
-            for c in range(NUM_COLS):
-                mem_p = board[r][c]
-                cam_p = cam_grid[r][c]
-                if mem_p.startswith("b") and cam_p != "." and not cam_p.startswith("b"):
-                    # Ô này: memory = đen, camera = không phải đen (có thể đỏ)
-                    candidates.append((c, r))
-        if len(candidates) == 1:
-            dst = candidates[0]
-            print(f"[DETECT] Pattern ăn quân: {piece} ({src_c},{src_r})→{dst}")
-            return (src_c, src_r), dst, piece
-    
-    # Pattern 3: Nhiều quân bị nhận sai → chọn cặp gần nhất
-    if len(missing_reds) >= 1 and len(new_reds) >= 1:
-        # Chọn cặp (missing, new) có khoảng cách gần nhất (hợp lý nhất)
-        best_pair = None
-        best_dist = 999
-        for mc, mr, mp in missing_reds:
-            for nc, nr, np_ in new_reds:
-                dist = abs(mc - nc) + abs(mr - nr)
-                if dist < best_dist:
-                    best_dist = dist
-                    best_pair = ((mc, mr, mp), (nc, nr, np_))
-        if best_pair and best_dist <= 10:  # Khoảng cách hợp lý
-            src = (best_pair[0][0], best_pair[0][1])
-            dst = (best_pair[1][0], best_pair[1][1])
-            piece = best_pair[0][2]
-            print(f"[DETECT] Pattern multi (dist={best_dist}): {piece} {src}→{dst}")
-            return src, dst, piece
-    
-    return None, None, None
+# (Legacy functions get_snapshot_board / detect_move_from_snapshot đã được xóa.
+#  Toàn bộ camera access giờ qua CameraMonitor.get_fresh_snapshot())
 
 # --- GAME LOGIC ---
 def reset_game():
@@ -498,13 +404,10 @@ def reset_game():
     print(f"[FEN] {current_fen}")
     
     # Chụp T1 baseline cho game mới
-    if snapshot_detector is not None:
+    if snapshot_detector is not None and cam_monitor is not None:
         time.sleep(1)  # Đợi bàn cờ ổn định
-        if cam_monitor is not None: cam_monitor.pause()
-        try:
-            snapshot_detector.capture_baseline()
-        finally:
-            if cam_monitor is not None: cam_monitor.resume()
+        frame, detections = cam_monitor.get_fresh_snapshot()
+        snapshot_detector.capture_baseline(frame, detections)
 
 def set_status(msg, color=(200, 0, 0), duration=2.5):
     global status_message, status_color, status_expiry
@@ -559,30 +462,23 @@ def handle_space_key():
     set_status("📸  Đang chụp và phân tích...", color=(0, 100, 180), duration=3.0)
     
     # Kiểm tra đã có T1 baseline chưa
-    if snapshot_detector is None:
+    if snapshot_detector is None or cam_monitor is None:
         set_status("❌  Snapshot detector chưa khởi tạo!", color=(180, 0, 0))
         return
     
-    # ⏸️ Tạm dừng CameraMonitor để tránh tranh camera
-    if cam_monitor is not None:
-        cam_monitor.pause()
-        time.sleep(0.3)  # Đợi thread dừng hẳn
+    # Lấy snapshot mới từ CameraMonitor (không cần pause/resume)
+    frame, detections = cam_monitor.get_fresh_snapshot()
     
-    try:
-        if not snapshot_detector.has_baseline():
-            print("[SPACE] ⚠️ Chưa có T1 baseline — chụp ngay...")
-            if snapshot_detector.capture_baseline():
-                set_status("📸 Đã chụp T1 baseline. Đi quân rồi bấm SPACE lại!", color=(0, 100, 180), duration=5.0)
-            else:
-                set_status("❌ Không chụp được baseline!", color=(180, 0, 0))
-            return
-        
-        # Chụp T2 và so sánh với T1
-        src, dst, piece = snapshot_detector.detect_move()
-    finally:
-        # ▶️ Luôn resume CameraMonitor dù có lỗi hay không
-        if cam_monitor is not None:
-            cam_monitor.resume()
+    if not snapshot_detector.has_baseline():
+        print("[SPACE] ⚠️ Chưa có T1 baseline — chụp ngay...")
+        if snapshot_detector.capture_baseline(frame, detections):
+            set_status("📸 Đã chụp T1 baseline. Đi quân rồi bấm SPACE lại!", color=(0, 100, 180), duration=5.0)
+        else:
+            set_status("❌ Không chụp được baseline!", color=(180, 0, 0))
+        return
+    
+    # Chụp T2 và so sánh với T1
+    src, dst, piece = snapshot_detector.detect_move(frame, detections, board)
     
     if src is None or dst is None:
         set_status("❌  Không phát hiện nước đi! Bấm SPACE lại.", color=(180, 0, 0))
@@ -608,14 +504,11 @@ print(f"\n[GAME] === GAME STARTED ===")
 print(f"[FEN] {current_fen}")
 
 # --- Chụp T1 baseline ban đầu ---
-if snapshot_detector is not None:
+if snapshot_detector is not None and cam_monitor is not None:
     print("[INIT] 📸 Chụp T1 baseline ban đầu...")
     time.sleep(1)  # Đợi camera ổn định
-    if cam_monitor is not None: cam_monitor.pause()
-    try:
-        snapshot_detector.capture_baseline()
-    finally:
-        if cam_monitor is not None: cam_monitor.resume()
+    frame, detections = cam_monitor.get_fresh_snapshot()
+    snapshot_detector.capture_baseline(frame, detections)
 
 try:
     while running:
@@ -769,13 +662,10 @@ try:
                                 handle_game_over('b')
                             else:
                                 # --- Chụp T1 mới SAU khi AI đi xong ---
-                                if snapshot_detector is not None:
+                                if snapshot_detector is not None and cam_monitor is not None:
                                     time.sleep(1.0)  # Đợi bàn cờ ổn định sau robot di chuyển
-                                    if cam_monitor is not None: cam_monitor.pause()
-                                    try:
-                                        snapshot_detector.capture_baseline()
-                                    finally:
-                                        if cam_monitor is not None: cam_monitor.resume()
+                                    frame, detections = cam_monitor.get_fresh_snapshot()
+                                    snapshot_detector.capture_baseline(frame, detections)
                                 
                                 if robot.connected:
                                     set_status("Your turn! Bấm SPACE sau khi đi.", color=(0, 100, 180), duration=5.0)
@@ -807,15 +697,47 @@ finally:
     # CLEANUP — LUÔN CHẠY dù crash hay tắt bình thường
     # ==========================================
     print("[CLEANUP] Đang dọn dẹp...")
-    if cam_monitor is not None:
-        cam_monitor.stop()
-    if engine:
-        engine.stop()
-    if cap:
-        cap.release()
-    cv2.destroyAllWindows()
-    if robot.connected and not config.DRY_RUN:
-        robot.robot.RobotEnable(0)
-    pygame.quit()
+    
+    # 1. Dừng CameraMonitor (sẽ dừng thread + release camera)
+    try:
+        if cam_monitor is not None:
+            cam_monitor.stop()
+    except Exception as e:
+        print(f"[CLEANUP] ⚠️ CameraMonitor stop error: {e}")
+    
+    # 2. Dừng Pikafish engine subprocess
+    try:
+        if engine:
+            engine.stop()
+    except Exception as e:
+        print(f"[CLEANUP] ⚠️ Pikafish stop error: {e}")
+    
+    # 3. Release camera (phòng trường hợp cam_monitor.stop() không release)
+    try:
+        if cap and cap.isOpened():
+            cap.release()
+            print("[CLEANUP] ✅ Camera released (fallback).")
+    except Exception as e:
+        print(f"[CLEANUP] ⚠️ Camera release error: {e}")
+    
+    # 4. Dọn dẹp OpenCV + Robot + Pygame
+    try:
+        cv2.destroyAllWindows()
+    except Exception:
+        pass
+    
+    try:
+        if robot.connected and not config.DRY_RUN:
+            robot.robot.RobotEnable(0)
+    except Exception as e:
+        print(f"[CLEANUP] ⚠️ Robot disable error: {e}")
+    
+    try:
+        pygame.quit()
+    except Exception:
+        pass
+    
     print("[CLEANUP] ✅ Xong!")
-    sys.exit()
+    
+    # 5. Force thoát — đảm bảo KHÔNG CÒN thread/process nào chạy ngầm
+    os._exit(0)

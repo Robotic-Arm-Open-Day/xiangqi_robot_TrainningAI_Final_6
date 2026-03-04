@@ -23,6 +23,7 @@ import subprocess
 import threading
 import time
 import os
+import atexit
 
 
 class PikafishEngine:
@@ -83,6 +84,9 @@ class PikafishEngine:
             cwd=os.path.dirname(os.path.abspath(self.engine_path)),
         )
 
+        # Đăng ký atexit handler để đảm bảo subprocess bị kill khi thoát
+        atexit.register(self._atexit_cleanup)
+
         # Optionally tell the engine where the NNUE file is
         if nnue_path and os.path.isfile(nnue_path):
             self._send(f'setoption name EvalFile value {os.path.abspath(nnue_path)}')
@@ -99,6 +103,16 @@ class PikafishEngine:
                 return
         raise RuntimeError("[PIKAFISH] Engine did not respond with 'uciok' in time.")
 
+    def _atexit_cleanup(self):
+        """Được gọi bởi atexit — force kill subprocess nếu vẫn còn chạy."""
+        if self.process and self.process.poll() is None:
+            try:
+                self.process.kill()
+                self.process.wait(timeout=2)
+                print("[PIKAFISH] 🛑 atexit: subprocess killed.")
+            except Exception:
+                pass
+
     def stop(self):
         """Gracefully shut down the engine subprocess."""
         if self.process:
@@ -106,7 +120,11 @@ class PikafishEngine:
                 self._send('quit')
                 self.process.wait(timeout=3)
             except Exception:
-                self.process.kill()
+                try:
+                    self.process.terminate()
+                    self.process.wait(timeout=2)
+                except Exception:
+                    self.process.kill()
             self.process = None
             self._ready = False
             print("[PIKAFISH] Engine stopped.")

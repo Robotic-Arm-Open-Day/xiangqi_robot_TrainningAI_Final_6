@@ -25,7 +25,19 @@ def calibrate_perspective_camera(cap, save_path):
         print("[CALIBRATE] DRY_RUN: bỏ qua calibration.")
         return None
 
-    # --- Thread đọc camera liên tục ---
+    # --- WARM UP camera TRƯỚC khi bắt đầu thread ---
+    # ⚠️ PHẢI warm-up TRƯỚC, KHÔNG ĐƯỢC chạy song song với capture thread
+    #    vì race condition trên cv2.VideoCapture gây frame đen!
+    print("[CALIBRATE] ⏳ Đang chờ camera warm up...")
+    for i in range(60):  # Đọc ~60 frame để camera USB ổn định (bỏ frame đen)
+        ret, _ = cap.read()
+        if not ret:
+            time.sleep(0.05)
+        time.sleep(0.03)
+    time.sleep(0.5)  # Chờ thêm cho camera ổn định hoàn toàn
+    print("[CALIBRATE] ✅ Camera warm up xong!")
+
+    # --- Thread đọc camera liên tục (bắt đầu SAU warm-up) ---
     cal_q = queue.Queue(maxsize=2)
     cal_stop = [False]
 
@@ -40,7 +52,6 @@ def calibrate_perspective_camera(cap, save_path):
             time.sleep(0.005)
 
     threading.Thread(target=_cal_capture, daemon=True).start()
-    time.sleep(0.5)  # Chờ camera warm up
 
     # --- Xử lý click chuột ---
     points = []
