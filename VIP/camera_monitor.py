@@ -134,6 +134,22 @@ class CameraMonitor:
 
         return display
 
+    def pause(self):
+        """Tạm dừng thread capture (để SnapshotDetector dùng camera)."""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=2)
+            self._thread = None
+        print("[CAM MONITOR] ⏸️ Paused.")
+
+    def resume(self):
+        """Tiếp tục thread capture sau khi pause."""
+        if not self._running:
+            self._running = True
+            self._thread = threading.Thread(target=self._capture_and_detect, daemon=True)
+            self._thread.start()
+            print("[CAM MONITOR] ▶️ Resumed.")
+
     def start(self):
         """Bắt đầu thread capture + detect."""
         if self._running:
@@ -148,7 +164,10 @@ class CameraMonitor:
         self._running = False
         if self._thread:
             self._thread.join(timeout=2)
-        cv2.destroyWindow(self.window_name)
+        try:
+            cv2.destroyWindow(self.window_name)
+        except cv2.error:
+            pass  # Window may not exist yet
 
     def update_display(self):
         """Gọi mỗi frame trong game loop — hiển thị camera window.

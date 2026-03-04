@@ -302,6 +302,13 @@ if not config.DRY_RUN and cap is not None and model is not None:
     cam_monitor = CameraMonitor(cap, model, PERSPECTIVE_PATH)
     cam_monitor.start()
 
+# --- KHỞI TẠO SNAPSHOT DETECTOR (T1/T2) ---
+from snapshot_detector import SnapshotDetector
+snapshot_detector = None
+if not config.DRY_RUN and cap is not None and model is not None:
+    snapshot_detector = SnapshotDetector(cap, model, PERSPECTIVE_PATH, CLASS_ID_TO_INTERNAL_NAME)
+    print("[INIT] ✅ SnapshotDetector initialized.")
+
 # ==========================================
 # 4. HÀM HỖ TRỢ
 # ==========================================
@@ -386,51 +393,78 @@ def detect_move_from_snapshot(cam_grid):
     """So sánh snapshot camera với board trong bộ nhớ.
     
     Trả về (src, dst, piece_name) hoặc (None, None, None).
-    Logic: tìm ô mà bộ nhớ có quân đỏ nhưng camera trống (src),
-           và ô mà bộ nhớ trống/đen nhưng camera có quân (dst).
+    Logic: So sánh quân ĐỎ giữa memory và camera:
+      - src: ô memory có quân đỏ nhưng camera KHÔNG thấy quân đỏ
+      - dst: ô memory KHÔNG có quân đỏ nhưng camera thấy quân đỏ
     """
-    missing_reds = []  # Ô có quân đỏ trong memory nhưng trống trong camera
-    appeared = []      # Ô trống/đen trong memory nhưng có quân trong camera
+    missing_reds = []  # Memory có quân đỏ, camera không thấy đỏ ở đó
+    new_reds = []      # Memory không có quân đỏ, camera thấy đỏ ở đó
     
     for r in range(NUM_ROWS):
         for c in range(NUM_COLS):
             mem_piece = board[r][c]
             cam_piece = cam_grid[r][c]
             
-            cam_occupied = cam_piece != "."
-            mem_occupied = mem_piece != "."
+            mem_is_red = mem_piece.startswith("r")
+            cam_is_red = cam_piece.startswith("r") if cam_piece != "." else False
             
-            if mem_piece.startswith("r") and not cam_occupied:
-                # Quân đỏ biến mất → src
+            if mem_is_red and not cam_is_red:
+                # Quân đỏ biến mất khỏi ô này → có thể là src
                 missing_reds.append((c, r, mem_piece))
-            elif not mem_piece.startswith("r") and cam_occupied:
-                # Ô xuất hiện quân mới → dst (có thể là ăn quân đen)
-                appeared.append((c, r, mem_piece))
+            elif not mem_is_red and cam_is_red:
+                # Quân đỏ xuất hiện ở ô mới → có thể là dst
+                new_reds.append((c, r, cam_piece))
     
-    # Pattern di chuyển thường: 1 mất + 1 xuất hiện
-    if len(missing_reds) == 1 and len(appeared) == 1:
+    # Debug log
+    print(f"[DETECT] missing_reds={len(missing_reds)}, new_reds={len(new_reds)}")
+    if missing_reds:
+        print(f"  missing: {[(c,r,p) for c,r,p in missing_reds]}")
+    if new_reds:
+        print(f"  new:     {[(c,r,p) for c,r,p in new_reds]}")
+    
+    # Pattern 1: Di chuyển thường — 1 quân đỏ mất, 1 quân đỏ xuất hiện
+    if len(missing_reds) == 1 and len(new_reds) == 1:
         src = (missing_reds[0][0], missing_reds[0][1])
-        dst = (appeared[0][0], appeared[0][1])
+        dst = (new_reds[0][0], new_reds[0][1])
         piece = missing_reds[0][2]
         return src, dst, piece
     
-    # Pattern ăn quân: 1 quân đỏ mất, ô đích vẫn có quân (quân đen bị thay bằng đỏ)
-    if len(missing_reds) == 1 and len(appeared) == 0:
-        # Kiểm tra xem có ô nào trong memory có quân đen nhưng camera vẫn có quân
+    # Pattern 2: Ăn quân đen — 1 quân đỏ mất ở src, quân đỏ thay thế quân đen ở dst
+    # Camera thấy đỏ ở vị trí cũ là đen → new_reds bắt được dst
+    # Nếu new_reds == 0, có thể camera nhận nhầm quân đỏ thành đen ở dst
+    if len(missing_reds) == 1 and len(new_reds) == 0:
         src_c, src_r, piece = missing_reds[0]
+        # Tìm ô mà memory có quân đen nhưng camera thấy quân (có thể đỏ bị nhận nhầm)
+        candidates = []
         for r in range(NUM_ROWS):
             for c in range(NUM_COLS):
-                mem_piece = board[r][c]
-                cam_piece = cam_grid[r][c]
-                if mem_piece.startswith("b") and cam_piece != ".":
-                    # Ô này có quân đen trong memory nhưng camera thấy có quân
-                    # (quân đỏ đã thay vào vị trí quân đen)
-                    dst = (c, r)
-                    # Cần filter: không phải mọi ô đen đều là target
-                    # Chỉ xét ô đen nằm gần src
-                    pass
-        # Fallback: không detect được
-        return None, None, None
+                mem_p = board[r][c]
+                cam_p = cam_grid[r][c]
+                if mem_p.startswith("b") and cam_p != "." and not cam_p.startswith("b"):
+                    # Ô này: memory = đen, camera = không phải đen (có thể đỏ)
+                    candidates.append((c, r))
+        if len(candidates) == 1:
+            dst = candidates[0]
+            print(f"[DETECT] Pattern ăn quân: {piece} ({src_c},{src_r})→{dst}")
+            return (src_c, src_r), dst, piece
+    
+    # Pattern 3: Nhiều quân bị nhận sai → chọn cặp gần nhất
+    if len(missing_reds) >= 1 and len(new_reds) >= 1:
+        # Chọn cặp (missing, new) có khoảng cách gần nhất (hợp lý nhất)
+        best_pair = None
+        best_dist = 999
+        for mc, mr, mp in missing_reds:
+            for nc, nr, np_ in new_reds:
+                dist = abs(mc - nc) + abs(mr - nr)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_pair = ((mc, mr, mp), (nc, nr, np_))
+        if best_pair and best_dist <= 10:  # Khoảng cách hợp lý
+            src = (best_pair[0][0], best_pair[0][1])
+            dst = (best_pair[1][0], best_pair[1][1])
+            piece = best_pair[0][2]
+            print(f"[DETECT] Pattern multi (dist={best_dist}): {piece} {src}→{dst}")
+            return src, dst, piece
     
     return None, None, None
 
@@ -462,6 +496,15 @@ def reset_game():
     ai_think_start = 0.0
     print("[GAME] 🔄 New game started!")
     print(f"[FEN] {current_fen}")
+    
+    # Chụp T1 baseline cho game mới
+    if snapshot_detector is not None:
+        time.sleep(1)  # Đợi bàn cờ ổn định
+        if cam_monitor is not None: cam_monitor.pause()
+        try:
+            snapshot_detector.capture_baseline()
+        finally:
+            if cam_monitor is not None: cam_monitor.resume()
 
 def set_status(msg, color=(200, 0, 0), duration=2.5):
     global status_message, status_color, status_expiry
@@ -508,24 +551,42 @@ def process_human_move(src, dst, p_name):
         turn = "r"  # game over, reset turn display
 
 def handle_space_key():
-    """Xử lý khi người chơi bấm SPACE — chụp snapshot và detect nước đi."""
+    """Xử lý khi người chơi bấm SPACE — chụp T2 và so sánh với T1."""
     if turn != "r" or game_over:
         return
     
-    print("\n[SPACE] 🎯 Người chơi bấm SPACE — đang chụp snapshot...")
+    print("\n[SPACE] 🎯 Người chơi bấm SPACE — đang chụp T2 snapshot...")
     set_status("📸  Đang chụp và phân tích...", color=(0, 100, 180), duration=3.0)
     
-    cam_grid = get_snapshot_board()
-    if cam_grid is None:
-        set_status("❌  Không chụp được ảnh!", color=(180, 0, 0))
-        print("[SPACE] ❌ Snapshot failed")
+    # Kiểm tra đã có T1 baseline chưa
+    if snapshot_detector is None:
+        set_status("❌  Snapshot detector chưa khởi tạo!", color=(180, 0, 0))
         return
     
-    src, dst, piece = detect_move_from_snapshot(cam_grid)
+    # ⏸️ Tạm dừng CameraMonitor để tránh tranh camera
+    if cam_monitor is not None:
+        cam_monitor.pause()
+        time.sleep(0.3)  # Đợi thread dừng hẳn
+    
+    try:
+        if not snapshot_detector.has_baseline():
+            print("[SPACE] ⚠️ Chưa có T1 baseline — chụp ngay...")
+            if snapshot_detector.capture_baseline():
+                set_status("📸 Đã chụp T1 baseline. Đi quân rồi bấm SPACE lại!", color=(0, 100, 180), duration=5.0)
+            else:
+                set_status("❌ Không chụp được baseline!", color=(180, 0, 0))
+            return
+        
+        # Chụp T2 và so sánh với T1
+        src, dst, piece = snapshot_detector.detect_move()
+    finally:
+        # ▶️ Luôn resume CameraMonitor dù có lỗi hay không
+        if cam_monitor is not None:
+            cam_monitor.resume()
     
     if src is None or dst is None:
         set_status("❌  Không phát hiện nước đi! Bấm SPACE lại.", color=(180, 0, 0))
-        print("[SPACE] ❌ No valid move detected from snapshot")
+        print("[SPACE] ❌ No valid move detected from T1/T2 comparison")
         return
     
     print(f"[SPACE] 👀 Phát hiện: {piece} {src}->{dst}")
@@ -545,6 +606,16 @@ clock = pygame.time.Clock()
 
 print(f"\n[GAME] === GAME STARTED ===")
 print(f"[FEN] {current_fen}")
+
+# --- Chụp T1 baseline ban đầu ---
+if snapshot_detector is not None:
+    print("[INIT] 📸 Chụp T1 baseline ban đầu...")
+    time.sleep(1)  # Đợi camera ổn định
+    if cam_monitor is not None: cam_monitor.pause()
+    try:
+        snapshot_detector.capture_baseline()
+    finally:
+        if cam_monitor is not None: cam_monitor.resume()
 
 try:
     while running:
@@ -697,6 +768,15 @@ try:
                             if xiangqi.get_king_pos('r', board) is None:
                                 handle_game_over('b')
                             else:
+                                # --- Chụp T1 mới SAU khi AI đi xong ---
+                                if snapshot_detector is not None:
+                                    time.sleep(1.0)  # Đợi bàn cờ ổn định sau robot di chuyển
+                                    if cam_monitor is not None: cam_monitor.pause()
+                                    try:
+                                        snapshot_detector.capture_baseline()
+                                    finally:
+                                        if cam_monitor is not None: cam_monitor.resume()
+                                
                                 if robot.connected:
                                     set_status("Your turn! Bấm SPACE sau khi đi.", color=(0, 100, 180), duration=5.0)
                                 else:
