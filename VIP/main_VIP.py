@@ -41,7 +41,7 @@ except ImportError:
         print("❌ ERROR: Could not find book file (ai_book.py)")
         sys.exit()
 
-from robot import FR5Robot
+from robot_VIP import FR5Robot
 
 # ==========================================
 # 0. CẤU HÌNH CHẾ ĐỘ (CONFIG)

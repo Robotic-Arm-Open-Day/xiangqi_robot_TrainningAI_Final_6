@@ -499,3 +499,45 @@ detections cho các module khác (SnapshotDetector). Không module nào khác
     → Vẽ info text "Detected: N pieces"
 
 ================================================================================
+
+# TAI LIEU MODULE: VIP/robot_VIP.py
+# Cap nhat: 2026-03-05
+
+## Mo Ta Tong Quat
+File dieu khien canh tay robot FR5 rieng cho phien ban VIP. Tach ra tu
+robot.py goc de co the tuy chinh rieng biet ma khong anh huong code cu.
+
+main_VIP.py import FR5Robot tu robot_VIP.py (khong phai robot.py):
+  from robot_VIP import FR5Robot
+
+## Thay Doi So Voi robot.py Goc
+
+  [THAY DOI CHINH] Gripper: Tool DO1 (dau canh tay) -> Controller DO2 (bo dieu khien)
+    - Nguyen nhan: mat day noi den dau canh tay robot
+    - Giai phap: dung dau DO tren bo dieu khien thay the
+    - Config: self.gripper_do_id = 2
+    - API:    SetToolDO(id=1) -> SetDO(id=2)
+
+## Cau Truc Class FR5Robot
+
+  __init__()           -> gripper_do_id = 2 (Controller DO2)
+  connect()            -> Ket noi robot qua RPC SDK
+  board_to_pose()      -> (col, row) -> [x, y, z, rx, ry, rz] mm
+  movej_pose()         -> Di chuyen tu do: MoveCart()
+  movel_pose()         -> Di chuyen thang dung: MoveCart()
+  go_to_idle_home()    -> Ve vi tri IDLE (config.IDLE_X/Y/Z)
+  go_to_home_chess()   -> Ve diem day "HOMECHESS" tren bo dieu khien
+  gripper_ctrl(val)    -> SetDO(id=2, status=val) <- Controller DO2
+  pick_at(col, row)    -> Mo kep -> di den o -> ha xuong -> dong kep -> nhac len
+  place_at(col, row)   -> Di den o -> ha xuong -> mo kep -> nhac len
+  place_in_capture_bin() -> Tha quan bi an vao bai (config.CAPTURE_BIN_*)
+
+## Ham Chinh (goi tu main_VIP.py)
+
+  move_piece(s_col, s_row, d_col, d_row, is_capture)
+    1. [Neu an quan] pick_at(d_col, d_row) -> place_in_capture_bin()
+    2. pick_at(s_col, s_row)
+    3. place_at(d_col, d_row)
+    4. go_to_home_chess()
+
+================================================================================
