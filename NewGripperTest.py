@@ -13,7 +13,6 @@ PULSE_DURATION = 3.0  # Seconds the electromagnet stays ON
 COOLDOWN_DURATION = 2.0  # Seconds the electromagnet stays OFF
 TEST_CYCLES = 5  # Number of times to pulse the relay
 
-
 def run_diagnostic():
     print(f"--- Fairino Main Control Box DO Diagnostic ---")
     print(f"Connecting to robot at {ROBOT_IP}...")

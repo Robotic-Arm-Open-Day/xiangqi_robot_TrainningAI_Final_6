@@ -1,0 +1,142 @@
+================================================================================
+  GHI CHÚ THẢO LUẬN: CHỈNH SỬA LOGIC NHẬN DIỆN QUÂN CỜ
+  Ngày: 2026-02-27 (FINAL v2)
+  Cập nhật: 2026-03-04 (v3 — FEN + Pikafish + Space Key)
+================================================================================
+
+=== PHẦN 1: LOGIC SNAPSHOT — BẤM SPACE ĐỂ CHỤP (MỚI v3) ===
+
+VẤN ĐỀ CŨ: Snapshot tự động mỗi 1s → vẫn có thể chụp lúc tay che camera,
+             hoặc người chưa đi xong mà hệ thống đã chụp.
+
+GIẢI PHÁP MỚI (v3):
+- BỎ snapshot tự động mỗi 1 giây
+- Người chơi đi quân xong → BẤM PHÍM SPACE
+- Hệ thống chụp 1 snapshot → so sánh với bàn cờ trong bộ nhớ
+- Phát hiện nước đi → validate → cập nhật bộ nhớ (FEN)
+- AI (Pikafish) dựa vào FEN trong bộ nhớ để tính nước đi tiếp
+
+LUỒNG MỚI:
+  Khởi động → bộ nhớ FEN = vị trí ban đầu
+  Lượt Người:
+    1. Người chơi di chuyển quân thật trên bàn
+    2. Bấm SPACE
+    3. Camera chụp snapshot → YOLO detect → so sánh với FEN bộ nhớ
+    4. Phát hiện nước đi (src → dst) → validate luật cờ
+    5. Cập nhật FEN bộ nhớ
+  Lượt AI:
+    1. Gửi FEN hiện tại cho Pikafish engine
+    2. Pikafish trả về nước đi tốt nhất
+    3. Robot thực hiện nước đi
+    4. Cập nhật FEN bộ nhớ
+    5. Quay lại lượt Người
+
+ƯU ĐIỂM SO VỚI v2:
+  ✅ Không sợ chụp lúc tay che camera (người chủ động bấm)
+  ✅ Không snapshot thừa khi người chưa đi xong
+  ✅ Đơn giản hơn (không cần timer, T1/T2)
+  ✅ Người chơi kiểm soát nhịp game
+
+=== PHẦN 2: CHUYỂN BOARD TỪ ARRAY SANG FEN STRING (MỚI v3) ===
+
+VẤN ĐỀ CŨ:
+- Board lưu dạng list 10x9: board[row][col] = "r_P", "b_K", "."
+- Không tương thích trực tiếp với UCI engine (Pikafish)
+
+GIẢI PHÁP:
+- Board trong bộ nhớ lưu dạng FEN string
+- VD: "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
+- Cần hàm chuyển đổi:
+    board_array_to_fen(board, color) → FEN string
+    fen_to_board_array(fen) → board list 10x9
+- FEN dùng trực tiếp cho Pikafish (gửi qua UCI: "position fen ...")
+- FEN cũng dùng để so sánh trạng thái trước/sau snapshot
+
+MAPPING QUÂN CỜ (ARRAY → FEN):
+  r_K → K    b_K → k
+  r_A → A    b_A → a
+  r_E → B    b_E → b    (Elephant = Bishop trong FEN chuẩn)
+  r_N → N    b_N → n
+  r_R → R    b_R → r
+  r_C → C    b_C → c
+  r_P → P    b_P → p
+
+=== PHẦN 3: TÍCH HỢP PIKAFISH (MỚI v3) ===
+
+VẤN ĐỀ CŨ:
+- ai.py dùng PVS tự viết → sức mạnh hạn chế
+- Đã có sẵn pikafish_engine.py nhưng chưa tích hợp vào main.py
+
+GIẢI PHÁP:
+- Thay ai.pick_best_move() bằng engine.pick_best_move()
+- Pikafish nhận FEN trực tiếp → trả về nước đi UCI → convert về (col, row)
+- Cần tải:
+    1. pikafish-windows-x86-64-avx2.exe (từ GitHub releases)
+    2. pikafish.nnue (từ test.pikafish.org)
+    3. Đặt trong thư mục pikafish/
+
+THAY ĐỔI TRONG main.py:
+- Import: from pikafish_engine import PikafishEngine
+- Khởi tạo: engine = PikafishEngine(config.PIKAFISH_EXE); engine.start()
+- AI worker: ai_result = engine.pick_best_move(board, "b", movetime_ms=...)
+- Thoát: engine.stop()
+
+=== PHẦN 4: NHẬN DIỆN CÓ/KHÔNG (GIỮ TỪ v2) ===
+
+Ý TƯỞNG:
+- YOLO hiện tại: 14 class (phải nhận biết quân nào, màu nào) → dễ sai
+- ĐỔI THÀNH: chỉ detect "có quân cờ" hay "ô trống" (1 class duy nhất)
+- Bộ nhớ (FEN) đã biết sẵn quân gì ở đâu → không cần YOLO nói
+
+KẾT QUẢ TRAINING YOLO26 (ĐÃ HOÀN THÀNH ✅):
+  Model: yolo26m.pt | 80 epochs | imgsz=640 | GPU
+  Precision : 95.5%
+  Recall    : 99.2%  ← gần như không bỏ sót quân nào
+  mAP50     : 95.4%
+  mAP50-95  : 82.4%
+  Weights   : runs/detect/chess_vision/yolo26_occupancy_run/weights/best.pt
+  → Model detect rất tốt, rủi ro nhấp nháy/bỏ sót rất thấp.
+
+VÍ DỤ:
+  Bộ nhớ FEN: biết ô (4,6) = P (Tốt đỏ)
+  Trước bấm SPACE: Ô (4,6) = CÓ quân, Ô (4,5) = TRỐNG
+  Sau bấm SPACE:   Ô (4,6) = TRỐNG,   Ô (4,5) = CÓ quân
+  → Kết luận: Tốt đỏ di chuyển (4,6) → (4,5) → Cập nhật FEN
+
+=== PHẦN 5: CÁC RỦI RO VÀ GIẢI PHÁP ===
+
+[RỦI RO 1] YOLO nhấp nháy — không detect được 1 quân đang yên
+  MỨC ĐỘ: THẤP (Recall 99.2%, kết hợp bấm SPACE chủ động → rất ít xảy ra)
+  GIẢI PHÁP: Pattern filter (1 mất + 1 xuất hiện = di chuyển)
+  → Mọi pattern khác → báo lỗi, yêu cầu bấm SPACE lại
+
+[RỦI RO 2] Xếp bàn cờ thật sai vị trí ban đầu
+  GIẢI PHÁP: Xếp đúng chuẩn. Có thể thêm bước verify đầu game.
+
+[RỦI RO 3] Perspective calibrate sai → quân bị map sang ô kế bên
+  GIẢI PHÁP: Calibrate thật chính xác (bấm V)
+
+[RỦI RO 4] Ăn quân — pattern khác di chuyển thường
+  Trước: Ô A = có quân đỏ, Ô B = có quân đen
+  Sau:   Ô A = trống,       Ô B = vẫn có quân
+  → Quân đỏ ở A đã ăn quân đen ở B
+  GIẢI PHÁP: Code xử lý pattern riêng cho ăn quân
+
+[RỦI RO 5] Người bấm SPACE trước khi di chuyển xong
+  GIẢI PHÁP: Nếu không phát hiện thay đổi → bỏ qua, hiển thị thông báo
+
+=== PHẦN 6: CẦN GIẢI QUYẾT ===
+
+[x] Train model YOLO26 — ĐÃ XONG (Precision 95.5%, Recall 99.2%)
+[ ] Chuyển board sang FEN string (board_array_to_fen / fen_to_board_array)
+[ ] Tích hợp Pikafish engine vào main.py (thay ai.py)
+[ ] Thêm xử lý phím SPACE để chụp snapshot (bỏ auto-snapshot mỗi 1s)
+[ ] Xử lý pattern di chuyển thường (1 mất + 1 xuất hiện)
+[ ] Xử lý pattern ăn quân (1 mất + ô đích vẫn có quân)
+[ ] Có cần bước verify bàn cờ lúc bắt đầu game?
+[*] Chỉnh PICK_Z, PLACE_Z trong config.py (đã nâng PICK_Z lên 190 để tránh đập bàn)
+[ ] Xác nhận cổng DO gripper — Main Box DO không có tín hiệu dù CMD hiện ON
+    → robot.py đang dùng SetToolDO(id=1), NewGripperTest dùng SetDO (Main Box)
+    → Cần test Tool DO2 để xác nhận gripper đấu ở đâu
+
+================================================================================
