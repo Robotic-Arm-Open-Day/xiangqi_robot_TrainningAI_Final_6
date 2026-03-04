@@ -140,3 +140,65 @@ VÍ DỤ:
     → Cần test Tool DO2 để xác nhận gripper đấu ở đâu
 
 ================================================================================
+
+# TÀI LIỆU KIẾN TRÚC: GIẢI QUYẾT RỦI RO BẮT QUÂN (BLIND CAPTURE RESOLUTION)
+
+## 1. Phát Biểu Vấn Đề (The Edge Case)
+Hệ thống thị giác hiện tại sử dụng YOLO26 với kiến trúc 1-class ("có quân" hoặc "không có quân"). Mặc dù giải pháp này khắc phục triệt để lỗi nhận diện do ánh sáng kém và bóng râm (tăng confidence từ 0.35 lên >0.70), nó tạo ra một điểm mù logic cho State Machine: *Hệ thống hoàn toàn mù màu và mù loại quân.*
+
+Trong kịch bản có một quân bị bắt (bị ăn), camera nhị phân chỉ nhận diện được sự thay đổi ở một đầu: 
+* *Ô xuất phát:* Trạng thái chuyển từ 1 (có quân) thành 0 (trống).
+* *Ô đích:* Trạng thái giữ nguyên 1 (vì quân cũ bị lấy ra, quân mới thế vào).
+
+Nếu Engine FEN báo cáo có nhiều hơn một nước đi hợp lệ có thể dẫn đến việc ăn quân ở ô xuất phát đó, hệ thống nhị phân sẽ bị sập vì không biết đích đến thực sự nằm ở đâu.
+
+## 2. Giải Pháp Kiến Trúc (The Solution)
+Bảo toàn kiến trúc 1-class để giữ hiệu năng phần cứng cho GPU RTX 3060 Mobile. Rủi ro này sẽ được giải quyết bằng thuật toán *Classical Pixel Differencing* tại tầng xử lý ảnh (OpenCV). 
+
+Cấu trúc giải quyết: Trí tuệ nhân tạo (YOLO) tìm tọa độ, Logic Game (FEN) cô lập các biến số, và Toán học cổ điển (OpenCV) chốt kết quả.
+
+### Thuật Toán Cốt Lõi:
+1. *Truy Xuất FEN:* Khi YOLO báo mất quân nhưng không có quân mới xuất hiện ở ô trống, gọi Pikafish để lấy danh sách các ô đích (Candidate Squares) hợp lệ.
+2. *Lưu Trữ Cache:* Vòng lặp main.py luôn duy trì prev_frame (ảnh trước khi người chơi đi) và curr_frame (ảnh hiện tại).
+3. *Nghịch Đảo Ma Trận:* Sử dụng ma trận Perspective nghịch đảo để map tọa độ logic (col, row) ngược lại thành khung Bounding Box [x1, y1, x2, y2] trên camera gốc.
+4. *Tính Toán AbsDiff:* Cắt (crop) hình ảnh của các ô đích tiềm năng từ cả hai frame, chuyển sang ảnh xám (Grayscale), và chạy hàm cv2.absdiff. 
+5. *Chốt Tọa Độ:* Ô nào có tổng điểm thay đổi pixel (score) lớn nhất (do có sự xê dịch vật lý, khác biệt ký tự khắc, hoặc đổi màu sơn) chính là ô đích thực sự.
+
+## 3. Mã Nguồn Triển Khai (Implementation)
+
+```python
+import cv2
+import numpy as np
+
+def resolve_capture_ambiguity(prev_frame, curr_frame, candidate_squares, inv_matrix):
+    """
+    candidate_squares: Danh sách các tuple (col, row) từ FEN engine
+    inv_matrix: Ma trận nghịch đảo từ cv2.invert(perspective_matrix)
+    """
+    highest_diff = 0
+    actual_destination = None
+
+    for (col, row) in candidate_squares:
+        # 1. Map tọa độ logic về Bounding Box pixel thực tế trên camera
+        # (Cần viết thêm hàm get_pixel_box_from_grid)
+        x1, y1, x2, y2 = get_pixel_box_from_grid(col, row, inv_matrix)
+        
+        # 2. Crop đúng ô cờ đó từ hai mốc thời gian
+        old_crop = prev_frame[y1:y2, x1:x2]
+        new_crop = curr_frame[y1:y2, x1:x2]
+        
+        # 3. Loại bỏ nhiễu ánh sáng màu bằng Grayscale
+        old_gray = cv2.cvtColor(old_crop, cv2.COLOR_BGR2GRAY)
+        new_gray = cv2.cvtColor(new_crop, cv2.COLOR_BGR2GRAY)
+        
+        # 4. Tính ma trận độ lệch tuyệt đối
+        diff = cv2.absdiff(old_gray, new_gray)
+        
+        # 5. Tính tổng điểm thay đổi
+        score = np.sum(diff)
+        
+        if score > highest_diff:
+            highest_diff = score
+            actual_destination = (col, row)
+
+    return actual_destination

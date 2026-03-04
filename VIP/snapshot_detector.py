@@ -43,6 +43,7 @@ class SnapshotDetector:
 
         # T1 baseline
         self._baseline_occ = None    # occupancy grid: True/False
+        self._baseline_frame = None  # actual camera frame tại T1 (cho absdiff)
         self._baseline_time = None
 
     # -------------------------------------------------------------------------
@@ -65,6 +66,7 @@ class SnapshotDetector:
 
         occ = self._build_occupancy(detections)
         self._baseline_occ = occ
+        self._baseline_frame = frame.copy()  # Lưu frame thực để dùng absdiff
         self._baseline_time = time.time()
 
         # Debug: đếm quân detect được
@@ -100,7 +102,7 @@ class SnapshotDetector:
         print(f"[SNAPSHOT] 📸 T2 captured: {n_occupied} quân detected")
 
         # So sánh T1 vs T2 (dùng occupancy + memory board)
-        return self._compare_snapshots(self._baseline_occ, t2_occ, board)
+        return self._compare_snapshots(self._baseline_occ, t2_occ, board, frame)
 
     def has_baseline(self):
         """Kiểm tra đã có T1 baseline chưa."""
@@ -109,6 +111,7 @@ class SnapshotDetector:
     def clear_baseline(self):
         """Xóa T1 baseline (dùng khi reset game)."""
         self._baseline_occ = None
+        self._baseline_frame = None
         self._baseline_time = None
         print("[SNAPSHOT] 🗑️ Baseline cleared.")
 
@@ -157,10 +160,128 @@ class SnapshotDetector:
         return grid
 
     # -------------------------------------------------------------------------
+    # INTERNAL: Blind Capture Resolution (pixel differencing)
+    # -------------------------------------------------------------------------
+
+    def _get_pixel_box_from_grid(self, col, row, inv_M, frame_shape, padding=4):
+        """Map tọa độ ô cờ (col, row) về bounding box pixel trên camera gốc.
+
+        Dùng ma trận perspective nghịch đảo (grid→pixel) để map 4 góc của ô,
+        rồi lấy bounding rect bao quanh.
+
+        Args:
+            col, row:    tọa độ ô cờ (0-indexed)
+            inv_M:       ma trận nghịch đảo perspective (3x3, float32)
+            frame_shape: (height, width, ...) của frame camera
+            padding:     mở rộng bounding box thêm vài pixel mỗi phía
+
+        Returns:
+            (x1, y1, x2, y2) clipped vào kích thước frame, hoặc None nếu lỗi
+        """
+        try:
+            h, w = frame_shape[:2]
+            # 4 góc của ô cờ trong toạ độ grid
+            corners_grid = np.array([[
+                [float(col),     float(row)    ],
+                [float(col + 1), float(row)    ],
+                [float(col + 1), float(row + 1)],
+                [float(col),     float(row + 1)],
+            ]], dtype=np.float32)
+
+            # Map về tọa độ pixel
+            corners_px = cv2.perspectiveTransform(corners_grid, inv_M)[0]
+
+            xs = corners_px[:, 0]
+            ys = corners_px[:, 1]
+            x1 = int(np.clip(np.min(xs) - padding, 0, w - 1))
+            y1 = int(np.clip(np.min(ys) - padding, 0, h - 1))
+            x2 = int(np.clip(np.max(xs) + padding, 0, w - 1))
+            y2 = int(np.clip(np.max(ys) + padding, 0, h - 1))
+
+            if x2 <= x1 or y2 <= y1:
+                return None  # Ô quá nhỏ hoặc nằm ngoài frame
+
+            return x1, y1, x2, y2
+        except Exception as e:
+            print(f"[SNAPSHOT] ⚠️ _get_pixel_box_from_grid error: {e}")
+            return None
+
+    def _resolve_capture_ambiguity(self, candidates, curr_frame):
+        """Dùng pixel differencing (absdiff) để xác định ô đích thực sự.
+
+        Khi YOLO không thể phân biệt ô nào bị ăn (vì occupancy-only),
+        so sánh từng ô candidate giữa T1 (baseline_frame) và T2 (curr_frame).
+        Ô bị ăn sẽ có sự thay đổi pixel lớn nhất (quân đen → quân đỏ).
+
+        Args:
+            candidates: list of (col, row) — các ô đích tiềm năng từ FEN
+            curr_frame: OpenCV frame (BGR) tại thời điểm T2
+
+        Returns:
+            (col, row) của ô đích thực sự, hoặc None nếu không xác định được
+        """
+        if self._baseline_frame is None:
+            print("[SNAPSHOT] ⚠️ resolve_capture_ambiguity: không có baseline_frame!")
+            return None
+        if curr_frame is None or len(candidates) == 0:
+            return None
+
+        # Load perspective matrix để tính inverse
+        if not os.path.exists(self.perspective_path):
+            print("[SNAPSHOT] ⚠️ resolve_capture_ambiguity: không có perspective.npy!")
+            return None
+
+        try:
+            M = np.load(self.perspective_path)
+            inv_M = np.linalg.inv(M)
+        except Exception as e:
+            print(f"[SNAPSHOT] ⚠️ resolve_capture_ambiguity: lỗi load/invert M: {e}")
+            return None
+
+        best_candidate = None
+        best_score = -1
+        score_log = []
+
+        for (col, row) in candidates:
+            box = self._get_pixel_box_from_grid(col, row, inv_M, curr_frame.shape)
+            if box is None:
+                score_log.append(f"  ({col},{row}): box=None")
+                continue
+
+            x1, y1, x2, y2 = box
+
+            prev_crop = self._baseline_frame[y1:y2, x1:x2]
+            curr_crop = curr_frame[y1:y2, x1:x2]
+
+            if prev_crop.size == 0 or curr_crop.size == 0:
+                score_log.append(f"  ({col},{row}): empty crop")
+                continue
+
+            # Grayscale để loại trừ nhiễu ánh sáng màu
+            prev_gray = cv2.cvtColor(prev_crop, cv2.COLOR_BGR2GRAY)
+            curr_gray = cv2.cvtColor(curr_crop, cv2.COLOR_BGR2GRAY)
+
+            diff = cv2.absdiff(prev_gray, curr_gray)
+            score = int(np.sum(diff))
+
+            score_log.append(f"  ({col},{row}): score={score}")
+
+            if score > best_score:
+                best_score = score
+                best_candidate = (col, row)
+
+        print("[SNAPSHOT] 🔬 Blind Capture Resolution scores:")
+        for s in score_log:
+            print(s)
+        print(f"[SNAPSHOT] ✅ Best candidate: {best_candidate} (score={best_score})")
+
+        return best_candidate
+
+    # -------------------------------------------------------------------------
     # INTERNAL: So sánh 2 snapshot T1 vs T2
     # -------------------------------------------------------------------------
 
-    def _compare_snapshots(self, t1_occ, t2_occ, board):
+    def _compare_snapshots(self, t1_occ, t2_occ, board, frame=None):
         """So sánh T1 vs T2 occupancy, dùng memory board để xác định quân.
         
         Logic:
@@ -171,6 +292,7 @@ class SnapshotDetector:
             t1_occ: 10x9 bool grid (T1 occupancy)
             t2_occ: 10x9 bool grid (T2 occupancy)
             board:  10x9 memory board (tại thời điểm T1)
+            frame:  OpenCV frame BGR tại T2 (dùng cho Blind Capture Resolution)
         
         Returns:
             (src, dst, piece_name) hoặc (None, None, None)
@@ -239,11 +361,24 @@ class SnapshotDetector:
                         # Ô này: memory = đen, T2 vẫn có quân → có thể đỏ đã ăn đen ở đây
                         candidates.append((c, r))
             
-            if len(candidates) > 0:
-                # Chọn candidate gần src nhất
-                best = min(candidates, key=lambda p: abs(p[0]-src_c) + abs(p[1]-src_r))
+            if len(candidates) == 1:
+                best = candidates[0]
                 print(f"[SNAPSHOT] ✅ Pattern 2b (ăn quân, dst vẫn occupied): {piece} ({src_c},{src_r})→{best}")
                 return (src_c, src_r), best, piece
+            
+            elif len(candidates) > 1:
+                # ⚠️ AMBIGUOUS: nhiều ô đen tiềm năng → dùng Blind Capture Resolution
+                print(f"[SNAPSHOT] ⚠️ Pattern 2b AMBIGUOUS: {len(candidates)} candidates={candidates}")
+                print(f"[SNAPSHOT] 🔬 Chạy Blind Capture Resolution (pixel absdiff)...")
+                best = self._resolve_capture_ambiguity(candidates, frame)
+                if best is not None:
+                    print(f"[SNAPSHOT] ✅ Pattern 2b (resolved via absdiff): {piece} ({src_c},{src_r})→{best}")
+                    return (src_c, src_r), best, piece
+                else:
+                    # Fallback: chọn candidate gần src nhất
+                    best = min(candidates, key=lambda p: abs(p[0]-src_c) + abs(p[1]-src_r))
+                    print(f"[SNAPSHOT] ⚠️ Pattern 2b fallback (nearest): {piece} ({src_c},{src_r})→{best}")
+                    return (src_c, src_r), best, piece
 
         # --- Pattern 3: Nhiều thay đổi → chọn cặp đỏ gần nhất ---
         if len(red_disappeared) >= 1 and len(appeared) >= 1:
@@ -259,6 +394,18 @@ class SnapshotDetector:
                 src = (best_pair[0][0], best_pair[0][1])
                 dst = (best_pair[1][0], best_pair[1][1])
                 piece = best_pair[0][2]
+                # Nếu có nhiều appeared mà khoảng cách bằng nhau → absdiff tie-break
+                tied = [(nc, nr) for mc2, mr2, mp2 in [best_pair[0]]
+                        for nc, nr in appeared
+                        if abs(mc2 - nc) + abs(mr2 - nr) == best_dist and (nc, nr) != dst]
+                if tied:
+                    tied_all = [dst] + tied
+                    print(f"[SNAPSHOT] ⚠️ Pattern 3 tied candidates={tied_all}, chạy absdiff...")
+                    resolved = self._resolve_capture_ambiguity(tied_all, frame)
+                    if resolved is not None:
+                        dst = resolved
+                        print(f"[SNAPSHOT] ✅ Pattern 3 (absdiff tie-break): {piece} {src}→{dst}")
+                        return src, dst, piece
                 print(f"[SNAPSHOT] ✅ Pattern 3 (multi, dist={best_dist}): {piece} {src}→{dst}")
                 return src, dst, piece
 
