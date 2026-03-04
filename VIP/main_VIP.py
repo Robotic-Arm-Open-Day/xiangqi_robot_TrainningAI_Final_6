@@ -199,6 +199,9 @@ ai_result        = None
 ai_thinking      = False
 ai_think_start   = 0.0
 
+# --- ROLLBACK STATE (lưu trước khi bấm SPACE) ---
+_pre_space_state = None   # dict chứa toàn bộ trạng thái game
+
 # --- ROBOT & CAMERA CONFIG ---
 robot = FR5Robot()
 
@@ -429,6 +432,38 @@ def handle_game_over(the_winner):
     else:
         print("\n[LEARN] 🗑️ AI Lost! NOT saving this data.")
 
+def handle_rollback():
+    """Rollback về trạng thái trước khi bấm SPACE lần cuối (phím Z)."""
+    global board, turn, last_move, current_fen, move_number
+    global r_captured, b_captured, move_history
+    global _pre_space_state
+
+    if _pre_space_state is None:
+        print("[ROLLBACK] ⚠️ Không có state để rollback!")
+        set_status("⚠️  Không có nước nào để rollback!", color=(180, 100, 0), duration=2.5)
+        return
+
+    print("[ROLLBACK] ↩️ Khôi phục trạng thái trước SPACE...")
+    s = _pre_space_state
+    board        = [row[:] for row in s["board"]]
+    turn         = s["turn"]
+    last_move    = s["last_move"]
+    current_fen  = s["current_fen"]
+    move_number  = s["move_number"]
+    r_captured   = list(s["r_captured"])
+    b_captured   = list(s["b_captured"])
+    move_history = list(s["move_history"])
+
+    # Khôi phục T1 baseline snapshot về trạng thái trước đó
+    if snapshot_detector is not None and s["baseline_occ"] is not None:
+        snapshot_detector._baseline_occ  = [row[:] for row in s["baseline_occ"]]
+        snapshot_detector._baseline_time = s["baseline_time"]
+        print("[ROLLBACK] 📸 T1 baseline restored.")
+
+    _pre_space_state = None   # Xóa sau khi rollback (chỉ rollback 1 lần)
+    set_status("↩️  Đã rollback! Di quân lại rồi bấm SPACE.", color=(180, 100, 0), duration=5.0)
+    print(f"[ROLLBACK] ✅ Done. FEN: {current_fen}")
+
 def process_human_move(src, dst, p_name):
     global board, last_move, turn, current_fen, move_number
     print(f"[HUMAN] ✅ Moved: {p_name} {src}->{dst}")
@@ -486,8 +521,23 @@ def handle_space_key():
         return
     
     print(f"[SPACE] 👀 Phát hiện: {piece} {src}->{dst}")
-    
+
     if xiangqi.is_valid_move(src, dst, board, "r"):
+        # Lưu state TRƯỚC KHI thực hiện nước đi (để rollback nếu cần)
+        global _pre_space_state
+        _pre_space_state = {
+            "board":        [row[:] for row in board],
+            "turn":         turn,
+            "last_move":    last_move,
+            "current_fen":  current_fen,
+            "move_number":  move_number,
+            "r_captured":   list(r_captured),
+            "b_captured":   list(b_captured),
+            "move_history": list(move_history),
+            "baseline_occ":  [row[:] for row in snapshot_detector._baseline_occ] if snapshot_detector and snapshot_detector._baseline_occ else None,
+            "baseline_time": snapshot_detector._baseline_time if snapshot_detector else None,
+        }
+        print("[SPACE] 💾 State saved for rollback (Z to undo).")
         process_human_move(src, dst, piece)
     else:
         print(f"[SPACE] ❌ Nước đi không hợp lệ: {src}->{dst}")
@@ -522,6 +572,10 @@ try:
                 # === SPACE KEY: Chụp snapshot và detect nước đi ===
                 if event.key == pygame.K_SPACE and not ALLOW_MOUSE_MOVE:
                     handle_space_key()
+
+                # === Z KEY: Rollback về trước khi bấm SPACE ===
+                elif event.key == pygame.K_z and not ALLOW_MOUSE_MOVE:
+                    handle_rollback()
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = event.pos

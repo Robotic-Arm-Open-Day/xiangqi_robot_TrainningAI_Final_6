@@ -284,9 +284,9 @@ class SnapshotDetector:
     def _compare_snapshots(self, t1_occ, t2_occ, board, frame=None):
         """So sánh T1 vs T2 occupancy, dùng memory board để xác định quân.
         
-        Logic:
-          - disappeared: T1 có quân nhưng T2 trống → check board: nếu đỏ → src
-          - appeared:    T1 trống nhưng T2 có quân → dst
+        Dùng VALIDATE-FIRST approach: tìm tất cả cặp (src, dst) khả dĩ
+        rồi validate bằng luật cờ, thay vì đoán pattern dựa trên số lượng
+        thay đổi (dễ sai do YOLO noise).
         
         Args:
             t1_occ: 10x9 bool grid (T1 occupancy)
@@ -297,6 +297,12 @@ class SnapshotDetector:
         Returns:
             (src, dst, piece_name) hoặc (None, None, None)
         """
+        # Import xiangqi để validate
+        try:
+            import xiangqi
+        except ImportError:
+            xiangqi = None
+
         disappeared = []  # Ô T1 có quân → T2 trống
         appeared = []     # Ô T1 trống → T2 có quân
 
@@ -306,11 +312,9 @@ class SnapshotDetector:
                 t2_has = t2_occ[r][c]
 
                 if t1_has and not t2_has:
-                    # Quân biến mất
                     piece = board[r][c]
                     disappeared.append((c, r, piece))
                 elif not t1_has and t2_has:
-                    # Quân xuất hiện
                     appeared.append((c, r))
 
         # Debug log
@@ -320,18 +324,46 @@ class SnapshotDetector:
         if appeared:
             print(f"  Xuất hiện: {[(c, r) for c, r in appeared]}")
 
-        # Lọc: chỉ quan tâm quân ĐỎ biến mất (người chơi đỏ di quân)
+        # === SRC candidates: quân ĐỎ biến mất ===
         red_disappeared = [(c, r, p) for c, r, p in disappeared if p.startswith("r")]
+        if not red_disappeared:
+            print("[SNAPSHOT] ❌ Không có quân đỏ nào biến mất.")
+            return None, None, None
         
-        if red_disappeared:
-            print(f"  Quân đỏ biến mất: {red_disappeared}")
+        print(f"  Quân đỏ biến mất: {red_disappeared}")
 
-        # --- Pattern 1: Di chuyển thường (1 đỏ mất, 1 xuất hiện) ---
-        if len(red_disappeared) == 1 and len(appeared) == 1:
-            src = (red_disappeared[0][0], red_disappeared[0][1])
-            dst = (appeared[0][0], appeared[0][1])
-            piece = red_disappeared[0][2]
-            print(f"[SNAPSHOT] ✅ Pattern 1 (di chuyển): {piece} {src}→{dst}")
+        # === DST candidates: chỉ dựa vào thay đổi THỰC SỰ từ camera ===
+        # Loại 1: Ô T1 trống → T2 có quân (di chuyển thường)
+        dst_candidates_move = set((c, r) for c, r in appeared)
+
+        # Loại 2: Ô quân ĐEN THỰC SỰ biến mất ở T2 (bị ăn, YOLO miss quân đỏ)
+        dst_candidates_black_gone = set()
+        for c, r, p in disappeared:
+            if p.startswith("b"):
+                dst_candidates_black_gone.add((c, r))
+
+        # Gộp dst candidates — KHÔNG còn quét toàn bộ quân đen trên board
+        all_dst = dst_candidates_move | dst_candidates_black_gone
+
+        if all_dst:
+            print(f"  DST candidates: move={dst_candidates_move}, black_gone={dst_candidates_black_gone}")
+
+        # === VALIDATE: thử từng cặp (src, dst) với luật cờ ===
+        valid_moves = []
+        for src_c, src_r, piece in red_disappeared:
+            src = (src_c, src_r)
+            for dst in all_dst:
+                if dst == src:
+                    continue
+                if xiangqi and xiangqi.is_valid_move(src, dst, board, "r"):
+                    dst_piece = board[dst[1]][dst[0]]
+                    move_type = "ăn quân" if dst_piece.startswith("b") else "di chuyển"
+                    valid_moves.append((src, dst, piece, move_type))
+                    print(f"  ✅ Valid: {piece} {src}→{dst} ({move_type})")
+
+        if len(valid_moves) == 1:
+            src, dst, piece, move_type = valid_moves[0]
+            print(f"[SNAPSHOT] ✅ Detected ({move_type}): {piece} {src}→{dst}")
             return src, dst, piece
 
         # --- Pattern 2: Ăn quân (1 đỏ mất, 0 xuất hiện mới) ---
@@ -361,24 +393,11 @@ class SnapshotDetector:
                         # Ô này: memory = đen, T2 vẫn có quân → có thể đỏ đã ăn đen ở đây
                         candidates.append((c, r))
             
-            if len(candidates) == 1:
-                best = candidates[0]
+            if len(candidates) > 0:
+                # Chọn candidate gần src nhất
+                best = min(candidates, key=lambda p: abs(p[0]-src_c) + abs(p[1]-src_r))
                 print(f"[SNAPSHOT] ✅ Pattern 2b (ăn quân, dst vẫn occupied): {piece} ({src_c},{src_r})→{best}")
                 return (src_c, src_r), best, piece
-            
-            elif len(candidates) > 1:
-                # ⚠️ AMBIGUOUS: nhiều ô đen tiềm năng → dùng Blind Capture Resolution
-                print(f"[SNAPSHOT] ⚠️ Pattern 2b AMBIGUOUS: {len(candidates)} candidates={candidates}")
-                print(f"[SNAPSHOT] 🔬 Chạy Blind Capture Resolution (pixel absdiff)...")
-                best = self._resolve_capture_ambiguity(candidates, frame)
-                if best is not None:
-                    print(f"[SNAPSHOT] ✅ Pattern 2b (resolved via absdiff): {piece} ({src_c},{src_r})→{best}")
-                    return (src_c, src_r), best, piece
-                else:
-                    # Fallback: chọn candidate gần src nhất
-                    best = min(candidates, key=lambda p: abs(p[0]-src_c) + abs(p[1]-src_r))
-                    print(f"[SNAPSHOT] ⚠️ Pattern 2b fallback (nearest): {piece} ({src_c},{src_r})→{best}")
-                    return (src_c, src_r), best, piece
 
         # --- Pattern 3: Nhiều thay đổi → chọn cặp đỏ gần nhất ---
         if len(red_disappeared) >= 1 and len(appeared) >= 1:
@@ -394,20 +413,8 @@ class SnapshotDetector:
                 src = (best_pair[0][0], best_pair[0][1])
                 dst = (best_pair[1][0], best_pair[1][1])
                 piece = best_pair[0][2]
-                # Nếu có nhiều appeared mà khoảng cách bằng nhau → absdiff tie-break
-                tied = [(nc, nr) for mc2, mr2, mp2 in [best_pair[0]]
-                        for nc, nr in appeared
-                        if abs(mc2 - nc) + abs(mr2 - nr) == best_dist and (nc, nr) != dst]
-                if tied:
-                    tied_all = [dst] + tied
-                    print(f"[SNAPSHOT] ⚠️ Pattern 3 tied candidates={tied_all}, chạy absdiff...")
-                    resolved = self._resolve_capture_ambiguity(tied_all, frame)
-                    if resolved is not None:
-                        dst = resolved
-                        print(f"[SNAPSHOT] ✅ Pattern 3 (absdiff tie-break): {piece} {src}→{dst}")
-                        return src, dst, piece
                 print(f"[SNAPSHOT] ✅ Pattern 3 (multi, dist={best_dist}): {piece} {src}→{dst}")
                 return src, dst, piece
 
-        print("[SNAPSHOT] ❌ Không phát hiện được nước đi.")
+        print("[SNAPSHOT] ❌ Không tìm được nước đi hợp lệ.")
         return None, None, None
