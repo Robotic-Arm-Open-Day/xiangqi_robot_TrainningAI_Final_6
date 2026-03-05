@@ -171,6 +171,18 @@ FIX (2026-03-05): Tách robot.connect() và go_to_home_chess() thành 2 khối
   (do điểm chưa dạy) lan sang làm robot.connected=False → robot không chạy.
   Nay: lỗi go_to_home_chess chỉ in cảnh báo, KHÔNG ảnh hưởng connected.
 
+⚠️ GHI CHÚ QUAN TRỌNG VỀ LỖI SINGULARITY KHI ĐI CHÉO BÀN CỜ (Góc R2):
+  Hiện tại `movej_pose()` đang dùng hàm SDK `MoveCart` (di chuyển theo đường thẳng). Khi vươn tới các góc xa (như R2), tay máy dễ bị duỗi thẳng băng gây kẹt góc (Singularity) hoặc chạm không không gian làm việc, dẫn đến báo lỗi từ chối di chuyển.
+  → Nếu trong quá trình test lại gặp lỗi này, **hãy mở `robot_VIP.py` và sửa hàm `movej_pose` sang bản chất gốc của `MoveJ`** (tay máy quặp tự do để né giới hạn trần/tường) như sau:
+  ```python
+  # Trong hàm movej_pose(self, pose, speed), thay lệnh err = MoveCart bằng:
+  err = self.robot.MoveJ(
+      joint_pos=[0]*6, desc_pos=pose, tool=self.tool_num, user=self.user_num,
+      vel=vel, acc=0.0, ovl=100.0, exaxis_pos=[0]*4, blendT=-1.0, offset_flag=0, offset_pos=[0]*6
+  )
+  ```
+  (Lưu ý: riêng hàm `movel_pose` khi dập kẹp xuống vuông góc bàn cờ thì BUỘC PHẢI GIỮ LÀ `MoveCart`).
+
 ---
 
 ### B4. VIP/calibrate_camera.py  ← chạy khi bấm V
