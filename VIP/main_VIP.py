@@ -37,15 +37,7 @@ from fen_utils import board_array_to_fen, fen_to_board_array, INITIAL_FEN
 # IMPORT AI CONTROLLER
 from ai_controller import AIController
 
-# IMPORT BOOK
-try:
-    import ai_book
-except ImportError:
-    try:
-        import opening_book as ai_book
-    except ImportError:
-        print("❌ ERROR: Could not find book file (ai_book.py)")
-        sys.exit()
+
 
 from robot_VIP import FR5Robot
 
@@ -390,11 +382,6 @@ def set_invalid_flash(col, row, duration=0.6):
 def handle_game_over(the_winner):
     global game_over, winner
     winner, game_over = the_winner, True
-    if the_winner == "b":
-        print("\n[LEARN] 🧠 AI Wins! Saving data to book...")
-        ai_book.learn_game(move_history, the_winner)
-    else:
-        print("\n[LEARN] 🗑️ AI Lost! NOT saving this data.")
 
 def handle_rollback():
     """Rollback về trạng thái trước khi bấm SPACE lần cuối (phím Z)."""
@@ -437,8 +424,7 @@ def process_human_move(src, dst, p_name):
     print(f"[HUMAN] ✅ Moved: {p_name} {src}->{dst}")
     set_status("✅  Move accepted — AI thinking...", color=(0, 120, 0), duration=5.0)
     
-    key = ai_book.board_to_key(board)
-    move_history.append({"turn": "r", "key": key, "src": src, "dst": dst})
+    move_history.append({"turn": "r", "src": src, "dst": dst})
     
     cap_p = board[dst[1]][dst[0]]
     if cap_p != ".": b_captured.append(cap_p)
@@ -671,9 +657,7 @@ try:
                     if best:
                         try: s, d = best
                         except: s, d = best[0], best[1]
-
-                        key = ai_book.board_to_key(board)
-                        move_history.append({"turn": "b", "key": key, "src": s, "dst": d})
+                        move_history.append({"turn": "b", "src": s, "dst": d})
                         cap_p = board[d[1]][d[0]]
                         is_cap = cap_p != "."
                         if is_cap: r_captured.append(cap_p)
