@@ -151,9 +151,18 @@ class SnapshotDetector:
                 dst = cv2.perspectiveTransform(
                     np.array([[[float(cx), float(cy)]]], dtype=np.float32), M
                 )[0][0]
-                c, r = int(round(dst[0])), int(round(dst[1]))
-                if 0 <= c < self.num_cols and 0 <= r < self.num_rows:
+                c_raw, r_raw = dst[0], dst[1]
+                c, r = int(round(c_raw)), int(round(r_raw))
+
+                # ⚠️ FIX: Clamp biên để tránh bỏ sót quân ở cột 8 / hàng 9.
+                # Perspective transform tại biên đôi khi cho c=8.6 → round=9 → bị bỏ sót.
+                # Chấp nhận nếu nằm trong ±1 ô ngoài biên → clamp về biên hợp lệ.
+                if -1 <= c <= self.num_cols and -1 <= r <= self.num_rows:
+                    c = max(0, min(c, self.num_cols - 1))
+                    r = max(0, min(r, self.num_rows - 1))
                     grid[r][c] = True
+                # (nếu nằm ngoài ±1 → bỏ qua, đây là detection nhiễu thực sự)
+
             except:
                 pass
 
