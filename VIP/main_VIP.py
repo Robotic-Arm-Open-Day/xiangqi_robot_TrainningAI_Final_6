@@ -132,16 +132,24 @@ _pre_space_state = None   # dict chứa toàn bộ trạng thái game
 # --- ROBOT & CAMERA CONFIG ---
 robot = FR5Robot()
 
-try:
-    if not config.DRY_RUN:
+if not config.DRY_RUN:
+    # --- Bước 1: Kết nối robot (lỗi ở đây mới dừng robot) ---
+    try:
         robot.connect()
-        robot.go_to_home_chess()
-    else:
-        print("[MAIN] DRY_RUN: Skipping physical robot connection.")
+        print("[MAIN] ✅ Robot kết nối thành công.")
+    except Exception as e:
+        print(f"⚠️ [MAIN] Robot connection error: {e}")
+        print("   → Tiếp tục chạy KHÔNG có robot (camera + calibrate vẫn hoạt động)")
         robot.connected = False
-except Exception as e:
-    print(f"⚠️ [MAIN] Robot connection error: {e}")
-    print("   → Tiếp tục chạy KHÔNG có robot (camera + calibrate vẫn hoạt động)")
+
+    # --- Bước 2: Về home (lỗi ở đây KHÔNG làm mất kết nối) ---
+    if robot.connected:
+        try:
+            robot.go_to_home_chess()
+        except Exception as e:
+            print(f"⚠️ [MAIN] go_to_home_chess lỗi: {e} → bỏ qua, robot vẫn CONNECTED")
+else:
+    print("[MAIN] DRY_RUN: Skipping physical robot connection.")
     robot.connected = False
 
 # --- HIỆU CHỈNH ROBOT ---

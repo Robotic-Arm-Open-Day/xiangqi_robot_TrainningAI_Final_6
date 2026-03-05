@@ -342,11 +342,26 @@ class SnapshotDetector:
             if p.startswith("b"):
                 dst_candidates_black_gone.add((c, r))
 
-        # Gộp dst candidates — KHÔNG quét toàn bộ quân đen trên board
-        all_dst = dst_candidates_move | dst_candidates_black_gone
+        # Loại 3: Ô quân ĐEN trong memory board mà T1 & T2 đều có quân
+        # → Trường hợp ăn quân phổ biến: YOLO detect được quân đỏ đang đứng tại ô dst
+        #   sau khi ăn, nên occupancy không thay đổi (T1=True, T2=True).
+        #   Cần chủ động add mọi ô đen "T1=True, T2=True (stable)" làm candidate.
+        dst_candidates_capture_stable = set()
+        if len(red_disappeared) == 1:  # Chỉ khi rõ ràng có 1 quân đỏ di chuyển
+            for r in range(self.num_rows):
+                for c in range(self.num_cols):
+                    if (board[r][c].startswith("b")       # ô này có quân đen trong memory
+                            and t1_occ[r][c]              # T1 camera detect có quân
+                            and t2_occ[r][c]):             # T2 camera vẫn detect có quân (YOLO thấy quân đỏ mới)
+                        dst_candidates_capture_stable.add((c, r))
+
+        # Gộp dst candidates
+        all_dst = dst_candidates_move | dst_candidates_black_gone | dst_candidates_capture_stable
 
         if all_dst:
-            print(f"  DST candidates: move={dst_candidates_move}, black_gone={dst_candidates_black_gone}")
+            print(f"  DST candidates: move={dst_candidates_move}, "
+                  f"black_gone={dst_candidates_black_gone}, "
+                  f"capture_stable={dst_candidates_capture_stable}")
 
         # === VALIDATE: thử từng cặp (src, dst) với luật cờ ===
         valid_moves = []

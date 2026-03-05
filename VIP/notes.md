@@ -1,5 +1,5 @@
 # GHI CHÚ VIP — KIẾN TRÚC & TÀI LIỆU MODULE
-# Cập nhật: 2026-03-05
+# Cập nhật: 2026-03-05 (session chiều — thêm RUN_VIP.bat)
 # Tổng hợp từ discussion_notes.txt — không trùng lặp, sắp xếp theo module
 
 ================================================================================
@@ -58,6 +58,10 @@
   [R3] Perspective calibrate sai → Bấm V để calibrate lại
   [R4] Ăn quân (ambiguous) → Blind Capture Resolution (pixel absdiff)
   [R5] Bấm SPACE trước khi đi xong → Bỏ qua, hiển thị thông báo
+  [R6] Khi ăn quân, YOLO detect quân đỏ tại ô đích → occupancy không đổi
+       → Đã fix bằng Loại 3 dst_candidates_capture_stable (xem B6)
+  [R7] Lỗi MoveCart 101 khi go_to_home_chess() làm robot.connected=False sai
+       → Đã fix: tách connect() và go_to_home_chess() thành 2 try riêng
 
 ### A5. PHÍM TẮT
 
@@ -73,11 +77,15 @@
   [x] Tích hợp Pikafish engine (thay ai.py PVS, qua ai_controller.py)
   [x] Phím SPACE để chụp snapshot
   [x] Xử lý pattern di chuyển thường + ăn quân (Blind Capture Resolution)
-  [x] Chỉnh PICK_Z/PLACE_Z (PICK_Z=190 tránh đập bàn)
+  [x] Chỉnh PICK_Z/PLACE_Z (PICK_Z=180, PLACE_Z=190 — cập nhật 2026-03-05)
   [x] Pikafish config (PIKAFISH_EXE, PIKAFISH_NNUE, PIKAFISH_THINK_MS)
+  [x] Tải Pikafish 2026-01-02 → pikafish/pikafish-avx2.exe + pikafish.nnue
   [x] Rollback (phím Z)
   [x] robot_VIP.py — Controller DO2 thay Tool DO1
   [x] Tách fen_utils.py và ai_controller.py khỏi main_VIP.py
+  [x] Fix robot.connected bị set False sai khi go_to_home_chess lỗi (2026-03-05)
+  [x] Fix snapshot_detector: detect ăn quân khi YOLO thấy quân đỏ tại ô đích (2026-03-05)
+  [x] Tạo RUN_VIP.bat — double-click để chạy, không cần cmd (2026-03-05)
   [ ] Verify bàn cờ lúc bắt đầu game (tùy chọn)
 
 ================================================================================
@@ -143,8 +151,13 @@ CÁC HÀM:
   place_in_capture_bin() → Thả quân bị ăn vào bãi
   move_piece(s,d,capture) → HÀM CHÍNH gọi từ main_VIP.py
 
-CONFIG: ROBOT_IP, DRY_RUN, SAFE_Z=217.227, PICK_Z=190.0, PLACE_Z=176.578
+CONFIG: ROBOT_IP, DRY_RUN, SAFE_Z=217.227, PICK_Z=180.0, PLACE_Z=190.0  ← cập nhật 2026-03-05
         CAPTURE_BIN_X=-226.123, CAPTURE_BIN_Y=225.024, CAPTURE_BIN_Z=291.68
+
+FIX (2026-03-05): Tách robot.connect() và go_to_home_chess() thành 2 khối
+  try riêng trong main_VIP.py. Trước đây lỗi MoveCart 101 khi về HOMECHESS
+  (do điểm chưa dạy) lan sang làm robot.connected=False → robot không chạy.
+  Nay: lỗi go_to_home_chess chỉ in cảnh báo, KHÔNG ảnh hưởng connected.
 
 ---
 
@@ -199,10 +212,14 @@ THUẬT TOÁN (4 lớp ưu tiên):
   [3] Cả đỏ src + đen dst biến mất → ăn quân trực tiếp
   [4] Chỉ đỏ src biến mất → Blind Capture Resolution (pixel absdiff quét quân đen)
 
-DST CANDIDATES (không false positive):
-  - Ô T1 trống → T2 có quân (di chuyển thường)
-  - Ô quân đen THỰC SỰ biến mất (bị ăn, YOLO miss)
-  → KHÔNG quét toàn bộ quân đen (gây false capture)
+DST CANDIDATES — 3 loại (cập nhật 2026-03-05):
+  Loại 1: Ô T1 trống → T2 có quân (di chuyển thường)
+  Loại 2: Ô quân đen THỰC SỰ biến mất (bị ăn, YOLO miss quân đỏ)
+  Loại 3: Ô quân đen trong memory board, T1=True & T2=True (stable)
+           → Trường hợp ăn quân PHỔ BIẾN NHẤT: YOLO detect quân đỏ đang
+             đứng tại ô đích sau khi ăn → occupancy không đổi → bị bỏ sót.
+             Fix: chủ động add tất cả ô đen "stable" vào candidate,
+             validate rule cờ sẽ loại những ô không hợp lệ.
 
 PIXEL ABSDIFF (_resolve_capture_ambiguity):
   Load inv_M → crop từng candidate (T1 vs T2) → Grayscale → absdiff
@@ -241,10 +258,14 @@ IMPORT ORDER (thứ tự phụ thuộc):
   7. board_renderer   → BoardRenderer, BTN_*, SCREEN_*
 
 KHỞI TẠO THEO THỨ TỰ:
-  _kill_zombie_processes() → Pygame → game state → Robot connect
+  _kill_zombie_processes() → Pygame → game state
+  → Robot connect [try 1] → go_to_home_chess [try 2, lỗi không ảnh hưởng connected]
   → Pikafish start → ai_ctrl = AIController(engine, config)
   → YOLO load → Camera open → Camera calibrate (V)
   → CameraMonitor.start() → SnapshotDetector init → T1 baseline
+
+FIX (2026-03-05): Tách 2 khối try để lỗi home (MoveCart 101) không làm
+  robot.connected=False. Robot vẫn execute move_piece() bình thường.
 
 CHỨC NĂNG GAME:
   reset_game()         → Board mới, FEN mới, chụp T1 mới
@@ -259,7 +280,27 @@ DRY_RUN mode (config.DRY_RUN=True):
 
 ---
 
-### B9. VIP/perspective.npy  ← file data
+### B9. VIP/RUN_VIP.bat  ← khởi động nhanh (tạo 2026-03-05)
+
+File batch script để chạy hệ thống bằng double-click, không cần mở cmd thủ công.
+
+TÍNH NĂNG:
+  - Tự cd vào đúng thư mục VIP/ (dùng %~dp0)
+  - Kiểm tra venv/Scripts/python.exe trước khi chạy
+  - Kiểm tra main_VIP.py tồn tại
+  - Cảnh báo nếu thiếu pikafish-avx2.exe (cho tiếp tục)
+  - Giữ cửa sổ mở sau khi thoát (pause) để xem log lỗi
+
+CÁCH DÙNG:
+  Double-click RUN_VIP.bat → hệ thống khởi động
+  Có thể tạo shortcut ra Desktop để tiện hơn.
+
+LƯU Ý: KHÔNG build .exe vì PyTorch/CUDA + subprocess pikafish không tương thích
+  tốt với PyInstaller, và config.py sẽ không sửa được sau khi build.
+
+---
+
+### B10. VIP/perspective.npy  ← file data
 
 Ma trận 3x3 float32: pixel (px,py) → ô cờ (col,row).
 Tạo bởi calibrate_camera.py (bấm V → click 4 góc → S).
@@ -274,6 +315,10 @@ Mất file → phải calibrate lại, robot báo CRITICAL ERROR.
     PIKAFISH_EXE      = pikafish/pikafish-avx2.exe
     PIKAFISH_NNUE     = pikafish/pikafish.nnue
     PIKAFISH_THINK_MS = 3000   (ms mỗi nước)
+
+  Phiên bản đang dùng: Pikafish 2026-01-02 (tải 2026-03-05)
+  Source: https://github.com/official-pikafish/Pikafish/releases/tag/Pikafish-2026-01-02
+  File: Pikafish.2026-01-02.7z → giải nén → copy Windows/pikafish-avx2.exe vào pikafish/
 
   File exe + nnue KHÔNG push git (.gitignore).
   Tải: https://github.com/official-pikafish/Pikafish/releases

@@ -108,6 +108,9 @@ class FR5Robot:
         if abs(x_mm) > 900 or abs(y_mm) > 900:
             print(f"[ROBOT] ⚠️ Tọa độ quá xa ({x_mm:.1f}, {y_mm:.1f}) — kiểm tra lại hiệu chỉnh!")
 
+        # DEBUG: in tọa độ thực tế để kiểm tra calibration
+        print(f"[ROBOT] 📐 board({col},{row}) → X={x_mm:.1f}mm, Y={y_mm:.1f}mm, Z={z_height:.1f}mm")
+
         return [x_mm, y_mm, z_height] + list(config.ROTATION)
 
     # -------------------------------------------------------------------------
