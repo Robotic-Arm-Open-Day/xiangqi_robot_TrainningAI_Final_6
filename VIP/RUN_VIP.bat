@@ -9,18 +9,8 @@ echo.
 REM Di den thu muc chua file bat nay (thu muc VIP)
 cd /d "%~dp0"
 
-REM Duong dan Python trong venv
-set "PYTHON=%~dp0..\venv\Scripts\python.exe"
-
-REM Kiem tra Python
-if not exist "%PYTHON%" (
-    echo [LOI] Khong tim thay Python venv tai:
-    echo       %PYTHON%
-    echo.
-    echo  Hay chac chan thu muc venv ton tai.
-    pause
-    exit /b 1
-)
+REM Duong dan Python. Dung 'py' de qua mat he thong App Execution Aliases cua Windows
+set "PYTHON=py"
 
 REM Kiem tra main_VIP.py
 if not exist "%~dp0main_VIP.py" (
@@ -43,8 +33,16 @@ echo  [OK] Dang khoi dong main_VIP.py...
 echo  [OK] De thoat: dong cua so hoac bam Q tren cua so camera.
 echo.
 
-REM Chay chuong trinh chinh
-"%PYTHON%" main_VIP.py
+REM Chay chuong trinh chinh (Yeu cau quay ve thu muc go'c de import dung config.py)
+cd /d "%~dp0.."
+"%PYTHON%" VIP\main_VIP.py
+
+REM Dung man hinh lai de xem loi (neu co) truoc khi auto-thoat
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [LOI] Chuong trinh bi crash dot ngot! Kiem tra dong loi o tren.
+    pause
+)
 
 REM Hien thi khi thoat
 echo.
