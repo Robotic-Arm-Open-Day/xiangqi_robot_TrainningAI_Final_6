@@ -15,7 +15,7 @@ File trọng số AI đã được đính kèm sẵn trong mã nguồn tại: `m
 ### [BƯỚC 3] TẢI CHESS ENGINE (PIKAFISH) - RẤT QUAN TRỌNG
 Vì file này rất nặng nên KHÔNG ĐƯỢC PUSH lên Git. Bạn bắt buộc phải tự tải:
 1. Tải **Pikafish 2026-01-02 AVX2** (cho Windows/Linux) từ: [Official Pikafish Releases](https://github.com/official-pikafish/Pikafish/releases)
-   👉 Giải nén file 7z vừa tải thẳng vào thư mục: `pikafish/` (giữ nguyên thư mục con `Windows/`)
+   👉 Giải nén file 7z vừa tải thẳng vào thư mục: `pikafish/`
 2. Tải **Neural Network (.nnue)** trực tiếp từ API: [Pikafish NNUE Latest](https://pikafish.org/api/nnue/download/latest)
    👉 Bỏ riêng file `pikafish.nnue` tải được vào thư mục `pikafish/`.
 Kết quả cấu trúc chuẩn sẽ như sau:
@@ -80,7 +80,7 @@ Dự-án-gốc/
 ```
 
 > [!WARNING] LƯU Ý VỀ CÁC FILE ĐẶC BIỆT (TUYỆT ĐỐI KHÔNG ĐƯỢC XÓA TRONG SUỐT QUÁ TRÌNH LÀM VIỆC):
-> - **`.keep` (nằm tại `pikafish/.keep`)**: Git mặc định sẽ tàng hình/bỏ qua các thư mục nếu nó rỗng. File `.keep` đóng vai trò là "mỏ neo", bắt buộc Git phải giữ lại vỏ thư mục `pikafish/` này trên kho lưu trữ đám mây. Nhờ đó, người xem tải code về sẽ có sẵn thư mục gốc chuẩn để dán tự động file `.exe` nặng vào, không lo lúng túng tạo sai đường dẫn làm Game không hoạt động được.
+> - **`.keep` (nằm tại `pikafish/.keep`)**: Git mặc định sẽ tàng hình/bỏ qua các thư mục nếu nó rỗng. File `.keep` đóng vai trò là "mỏ neo", bắt buộc Git phải giữ lại vỏ thư mục `pikafish/` này trên kho lưu trữ đám mây (đỡ phải tạo folder khi clone repo mới về).
 > - **`__init__.py` (nằm trong mọi thư mục con của `src/` và `tests/`)**: Dù đây là các file trống `0 KB`, nhưng chúng là "Thẻ căn cước" hệ thống bắt buộc của ngôn ngữ Python. Nó cho phép Python hiểu các thư mục này là một gói thư viện (Package). Nếu lỡ tay xóa đi, toàn bộ lệnh kết nối chéo giữa các tầng như `from src.core import...` sẽ lập tức báo lỗi file không tồn tại và làm ứng dụng sập.
 
 ---
