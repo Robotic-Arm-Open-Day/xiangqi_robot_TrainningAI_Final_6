@@ -96,11 +96,12 @@ Dự-án-gốc/
     5. Cập nhật FEN bộ nhớ
 
   [Lượt AI]
-    1. Gửi FEN hiện tại cho Pikafish (qua AIController)
-    2. Pikafish trả về nước đi tốt nhất (UCI)
-    3. Robot thực hiện nước đi (src/hardware/robot_VIP.py)
-    4. Cập nhật FEN bộ nhớ → chụp T1 baseline mới
-    5. Quay lại lượt Người
+    1. Gửi FEN hiện tại cho AIController
+    2. Ưu tiên gọi Cloud Engine API (tuongkydaisu.com) để lấy nước đi tốt nhất
+    3. Tự động Fallback sang Local Pikafish nếu Cloud gặp sự cố (Lỗi mạng/Timeout)
+    4. Nhận kết quả và ra lệnh cho Robot thực hiện thao tác gắp nhả (src/hardware/robot_VIP.py)
+    5. Cập nhật FEN bộ nhớ → chụp T1 baseline mới
+    6. Quay lại lượt Người
 
   [Rollback — phím Z]
     → Khôi phục toàn bộ state (board, FEN, T1 baseline) về trước SPACE vừa bấm
