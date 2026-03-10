@@ -22,11 +22,10 @@ if not exist "%~dp0main.py" (
 REM Kiem tra Pikafish
 if not exist "%~dp0pikafish\Windows\pikafish-avx2.exe" (
     echo [CANH BAO] Khong tim thay pikafish-avx2.exe!
-    echo  Tai ve tai: https://github.com/official-pikafish/Pikafish/releases
-    echo  Giai nen va de nguyen thu muc con Windows trong pikafish\
+    echo  - He thong se tu dong su dung Cloud Engine API thay the.
+    echo  - Neu muon choi Offline, hay tai ve tu:
+    echo    https://github.com/official-pikafish/Pikafish/releases
     echo.
-    echo  Nhan ENTER de tiep tuc...
-    pause > nul
 )
 
 echo  [OK] Dang khoi dong main.py...
