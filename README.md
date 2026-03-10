@@ -1,6 +1,5 @@
-# GHI CHÚ DỰ ÁN — KIẾN TRÚC MODULAR
-# Cập nhật: 2026-03-06 (Sửa Tool DO0, fix MoveJ singularity, Auto T1 baseline)
-# Tổng hợp từ discussion_notes.txt — không trùng lặp, sắp xếp theo module
+# XIANGQI ROBOT CỜ TƯỚNG VIP — KIẾN TRÚC MODULAR
+
 
 # PHẦN 0: HƯỚNG DẪN CÀI ĐẶT DÀNH CHO NGƯỜI MỚI (STANDALONE REPO)
 Repository này có thể hoạt động ĐỘC LẬP không cần phụ thuộc vào mã nguồn gốc. Để chạy được hệ thống, bạn cần làm đúng 3 bước:
