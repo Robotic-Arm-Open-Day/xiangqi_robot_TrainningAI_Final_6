@@ -2,9 +2,7 @@
 # Cập nhật: 2026-03-06 (Sửa Tool DO0, fix MoveJ singularity, Auto T1 baseline)
 # Tổng hợp từ discussion_notes.txt — không trùng lặp, sắp xếp theo module
 
-================================================================================
-## PHẦN 0: HƯỚNG DẪN CÀI ĐẶT DÀNH CHO NGƯỜI MỚI (STANDALONE REPO)
-================================================================================
+# PHẦN 0: HƯỚNG DẪN CÀI ĐẶT DÀNH CHO NGƯỜI MỚI (STANDALONE REPO)
 Repository này có thể hoạt động ĐỘC LẬP không cần phụ thuộc vào mã nguồn gốc. Để chạy được hệ thống, bạn cần làm đúng 3 bước:
 
 [BƯỚC 1] CÀI ĐẶT THƯ VIỆN PYTHON
@@ -15,24 +13,26 @@ pip install pygame numpy opencv-python ultralytics
 [BƯỚC 2] TẢI MÔ HÌNH NHẬN DIỆN BÀN CỜ (YOLO)
 File trọng số AI đã được đính kèm sẵn trong mã nguồn tại: `models/best.pt`. (Nếu bạn là người phát triển, hãy đảm bảo file này đã được commit lên Git).
 
-[BƯỚC 3] TẢI CHESS ENGINE (PIKAFISH) - RẤT QUAN TRỌNG
+### [BƯỚC 3] TẢI CHESS ENGINE (PIKAFISH) - RẤT QUAN TRỌNG
 Vì file này rất nặng nên KHÔNG ĐƯỢC PUSH lên Git. Bạn bắt buộc phải tự tải:
-1. Tải **Pikafish 2026-01-02 AVX2** (cho Windows/Linux) từ: https://github.com/official-pikafish/Pikafish/releases
-   -> Giải nén file 7z vừa tải thẳng vào thư mục: `pikafish/` (giữ nguyên thư mục con `Windows/`)
-2. Tải **Neural Network (.nnue)** trực tiếp từ API: https://pikafish.org/api/nnue/download/latest
-   -> Bỏ riêng file pikafish.nnue tải được vào thư mục `pikafish/`.
+1. Tải **Pikafish 2026-01-02 AVX2** (cho Windows/Linux) từ: [Official Pikafish Releases](https://github.com/official-pikafish/Pikafish/releases)
+   👉 Giải nén file 7z vừa tải thẳng vào thư mục: `pikafish/` (giữ nguyên thư mục con `Windows/`)
+2. Tải **Neural Network (.nnue)** trực tiếp từ API: [Pikafish NNUE Latest](https://pikafish.org/api/nnue/download/latest)
+   👉 Bỏ riêng file `pikafish.nnue` tải được vào thư mục `pikafish/`.
 Kết quả cấu trúc chuẩn sẽ như sau:
-   Dự-án-gốc/
-   ├── pikafish/
-   │   ├── pikafish.nnue
-   │   └── Windows/
-   │       └── pikafish-avx2.exe
+```text
+Dự-án-gốc/
+├── pikafish/
+│   ├── pikafish.nnue
+│   └── Windows/
+│       └── pikafish-avx2.exe
+```
 
 Đã xong! Giờ bạn có thể chạy `main.py` hoặc double click `RUN.bat` để bắt đầu.
 
-================================================================================
-## PHẦN 1: CẤU TRÚC THƯ MỤC CỐT LÕI
-================================================================================
+---
+
+# PHẦN 1: CẤU TRÚC THƯ MỤC CỐT LÕI
 
 Dự án được tổ chức theo kiến trúc Modular, chia nhỏ logic theo từng domain con:
 
@@ -80,9 +80,9 @@ Dự-án-gốc/
     └── test_*.py             # Kịch bản test độc lập từng thành phần (Mocking)
 ```
 
-================================================================================
-## PHẦN 2: KIẾN TRÚC TỔNG THỂ & LUỒNG GAME
-================================================================================
+---
+
+# PHẦN 2: KIẾN TRÚC TỔNG THỂ & LUỒNG GAME
 
 ### 2.1. LUỒNG GAME
 
@@ -132,22 +132,22 @@ Dự-án-gốc/
 
 ### 2.4. CÁC RỦI RO & GIẢI PHÁP
 
-  [R1] YOLO nhấp nháy → Pattern filter xử lý (Recall 99.2%, ít xảy ra)
-  [R2] Xếp bàn cờ ban đầu sai → Xếp đúng chuẩn
-  [R3] Perspective calibrate sai → Bấm V để calibrate lại
-  [R4] Ăn quân (ambiguous) → Blind Capture Resolution (pixel absdiff)
-  [R5] Bấm SPACE trước khi đi xong → Bỏ qua, hiển thị thông báo
-  [R6] Khi ăn quân, YOLO detect quân đỏ tại ô đích → occupancy không đổi
-       → Đã fix bằng Loại 3 dst_candidates_capture_stable (xem Phần 3.4.3)
-  [R7] Lỗi MoveCart 101 khi go_to_home_chess() làm robot.connected=False sai
-       → Đã fix: tách connect() và go_to_home_chess() thành 2 try riêng
+- **[R1]** YOLO nhấp nháy → Pattern filter xử lý (Recall 99.2%, ít xảy ra)
+- **[R2]** Xếp bàn cờ ban đầu sai → Xếp đúng chuẩn
+- **[R3]** Perspective calibrate sai → Bấm V để calibrate lại
+- **[R4]** Ăn quân (ambiguous) → Blind Capture Resolution (pixel absdiff)
+- **[R5]** Bấm SPACE trước khi đi xong → Bỏ qua, hiển thị thông báo
+- **[R6]** Khi ăn quân, YOLO detect quân đỏ tại ô đích → occupancy không đổi
+  👉 Đã fix bằng Loại 3 dst_candidates_capture_stable (xem Phần 3.4.3)
+- **[R7]** Lỗi MoveCart 101 khi go_to_home_chess() làm robot.connected=False sai
+  👉 Đã fix: tách `connect()` và `go_to_home_chess()` thành 2 try riêng
 
 ### 2.5. PHÍM TẮT
 
-  SPACE  → Chụp T2 snapshot, detect nước đi người chơi
-  Z      → Rollback về trước SPACE vừa bấm (undo 1 nước)
-  V      → Calibrate lại camera (click 4 góc bàn cờ)
-  Q      → Thoát cửa sổ camera
+- `SPACE` → Chụp T2 snapshot, detect nước đi người chơi
+- `Z` → Rollback về trước SPACE vừa bấm (undo 1 nước)
+- `V` → Calibrate lại camera (click 4 góc bàn cờ)
+- `Q` → Thoát cửa sổ camera
 
 ### 2.6. CHECKLIST
 
@@ -171,10 +171,10 @@ Dự-án-gốc/
   [ ] Xác định và lưu điểm HOMECHESS lên bộ nhớ Robot để sửa lỗi err=143
   [ ] Verify bàn cờ lúc bắt đầu game (tùy chọn)
 
-================================================================================
-## PHẦN 3: TÀI LIỆU CÁC MODULE (CHI TIẾT THEO THƯ MỤC)
-================================================================================
+---
 
+# PHẦN 3: TÀI LIỆU CÁC MODULE (CHI TIẾT THEO THƯ MỤC)
+  
 ### 3.1. MODULE CORE (`src/core/`)
 Đảm nhiệm logic cờ và lưu trữ trạng thái Game. Không phụ thuộc Pygame.
 
@@ -293,22 +293,21 @@ Script tự kích hoạt và xác minh Virtual Environment, kiểm tra sự tồ
 #### 3.6.3. `perspective.npy`
 File trọng số sinh ra bởi Calibrate Camera. Mất file → Hệ thống hỏng tính năng chụp ảnh AI.
 
-================================================================================
-## PHẦN 4: AI CHESS ENGINE (HYBRID / CLOUD / LOCAL)
-================================================================================
+---
 
-  Config trung tâm lưu tại (config.py):
-    ENGINE_TYPE       = "HYBRID" # Lựa chọn: "HYBRID", "CLOUD", "LOCAL"
-    CLOUD_API_URL     = "https://tuongkydaisu.com/api/engine/bestmove"
-    PIKAFISH_EXE      = pikafish/pikafish-avx2.exe
-    PIKAFISH_NNUE     = pikafish/pikafish.nnue
-    PIKAFISH_THINK_MS = 3000   (ms mỗi nước, dành cho Local)
+# PHẦN 4: AI CHESS ENGINE (HYBRID / CLOUD / LOCAL)
 
-  Phiên bản đang dùng: Pikafish 2026-01-02 (tải 2026-03-05)
-  Source: https://github.com/official-pikafish/Pikafish/releases/tag/Pikafish-2026-01-02
-  File: Pikafish.2026-01-02.7z → giải nén → copy Windows/pikafish-avx2.exe vào pikafish/
+**Config trung tâm lưu tại (`config.py`):**
+```python
+ENGINE_TYPE       = "HYBRID" # Lựa chọn: "HYBRID", "CLOUD", "LOCAL"
+CLOUD_API_URL     = "https://tuongkydaisu.com/api/engine/bestmove"
+PIKAFISH_EXE      = "pikafish/pikafish-avx2.exe"
+PIKAFISH_NNUE     = "pikafish/pikafish.nnue"
+PIKAFISH_THINK_MS = 3000   # (ms mỗi nước, dành cho Local)
+```
 
-  File exe + nnue KHÔNG push git (.gitignore).
-  Tải: https://github.com/official-pikafish/Pikafish/releases
+- **Phiên bản đang dùng:** Pikafish 2026-01-02 (tải 2026-03-05)
+- **Source:** [Pikafish-2026-01-02](https://github.com/official-pikafish/Pikafish/releases/tag/Pikafish-2026-01-02)
+- **Cài đặt Local:** File `Pikafish.2026-01-02.7z` → giải nén → copy `Windows/pikafish-avx2.exe` vào `pikafish/`
 
-================================================================================
+*(Lưu ý: File exe + nnue KHÔNG push git do đã set trong `.gitignore`. Người mới vui lòng tải thủ công từ nguồn release)*
