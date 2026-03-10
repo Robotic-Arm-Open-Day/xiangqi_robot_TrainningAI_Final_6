@@ -79,6 +79,10 @@ Dự-án-gốc/
     └── test_*.py             # Kịch bản test độc lập từng thành phần (Mocking)
 ```
 
+> [!WARNING] LƯU Ý VỀ CÁC FILE ĐẶC BIỆT (TUYỆT ĐỐI KHÔNG ĐƯỢC XÓA TRONG SUỐT QUÁ TRÌNH LÀM VIỆC):
+> - **`.keep` (nằm tại `pikafish/.keep`)**: Git mặc định sẽ tàng hình/bỏ qua các thư mục nếu nó rỗng. File `.keep` đóng vai trò là "mỏ neo", bắt buộc Git phải giữ lại vỏ thư mục `pikafish/` này trên kho lưu trữ đám mây. Nhờ đó, người xem tải code về sẽ có sẵn thư mục gốc chuẩn để dán tự động file `.exe` nặng vào, không lo lúng túng tạo sai đường dẫn làm Game không hoạt động được.
+> - **`__init__.py` (nằm trong mọi thư mục con của `src/` và `tests/`)**: Dù đây là các file trống `0 KB`, nhưng chúng là "Thẻ căn cước" hệ thống bắt buộc của ngôn ngữ Python. Nó cho phép Python hiểu các thư mục này là một gói thư viện (Package). Nếu lỡ tay xóa đi, toàn bộ lệnh kết nối chéo giữa các tầng như `from src.core import...` sẽ lập tức báo lỗi file không tồn tại và làm ứng dụng sập.
+
 ---
 
 # PHẦN 2: KIẾN TRÚC TỔNG THỂ & LUỒNG GAME
