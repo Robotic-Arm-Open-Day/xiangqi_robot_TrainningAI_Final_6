@@ -1,6 +1,6 @@
 import time
-from src.core import xiangqi
-from src.ui.board_renderer import BoardRenderer, BTN_SURRENDER_RECT, BTN_NEW_GAME_RECT, NUM_COLS, NUM_ROWS
+from src.core import xiangqi  # type: ignore
+from src.ui.board_renderer import BoardRenderer, BTN_SURRENDER_RECT, BTN_NEW_GAME_RECT, NUM_COLS, NUM_ROWS  # type: ignore
 
 class InputHandler:
     """Manages Pygame Key/Mouse events and bridges them to GameState and HardwareManager."""
@@ -18,12 +18,7 @@ class InputHandler:
 
         # New Game Button
         if BTN_NEW_GAME_RECT.collidepoint(mx, my):
-            import pygame
-            from src.ui.difficulty_ui import show_difficulty_selection
-            screen = pygame.display.get_surface()
-            new_difficulty = show_difficulty_selection(screen)
             self.state.reset_game(self.hw)
-            self.state.difficulty = new_difficulty
             return
 
         # Manual Override (Mouse Drag)
@@ -62,7 +57,7 @@ class InputHandler:
         if self.state.allow_mouse_move or self.state.game_over or self.state.turn != "r":
             return
 
-        import pygame
+        import pygame  # type: ignore
         # Z KEY: Rollback
         if key == pygame.K_z:
             self.state.handle_rollback(self.hw)
