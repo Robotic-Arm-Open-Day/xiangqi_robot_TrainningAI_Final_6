@@ -9,17 +9,17 @@ import threading
 import atexit
 import subprocess
 import traceback
-import pygame
+import pygame  # type: ignore
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _BASE_DIR)
 
-import config
-from src.core import xiangqi
+import config  # type: ignore
+from src.core import xiangqi  # type: ignore
 
-from src.core.game_state import GameState
-from src.hardware.hardware_manager import HardwareManager
-from src.ui.input_handler import InputHandler
+from src.core.game_state import GameState  # type: ignore
+from src.hardware.hardware_manager import HardwareManager  # type: ignore
+from src.ui.input_handler import InputHandler  # type: ignore
 
 # ==========================================
 # 0. CHẾ ĐỘ & DỌN DẸP TIẾN TRÌNH CŨ
@@ -49,7 +49,7 @@ _kill_zombie_processes()
 pygame.init()
 pygame.font.init()
 
-from src.ui.board_renderer import BoardRenderer, SCREEN_WIDTH, SCREEN_HEIGHT
+from src.ui.board_renderer import BoardRenderer, SCREEN_WIDTH, SCREEN_HEIGHT  # type: ignore
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption(f"Xiangqi Robot VIP - { _mode_label }")
 renderer = BoardRenderer(screen)
@@ -61,11 +61,16 @@ input_mgr = InputHandler(state, hw)
 
 def _cleanup_all():
     print("\n[CLEANUP] Đang dọn dẹp hệ thống...")
+    # [API] Force Kết thúc trận đấu khi thoát chương trình
+    try:
+        if state and state.api_client:
+            state.api_client.end_match(reason="OTHER")
+    except: pass
     hw.cleanup()
     try: pygame.quit()
     except: pass
     print("[CLEANUP] ✅ Xong!")
-    os._exit(0)
+    sys.exit(0)
 
 atexit.register(_cleanup_all)
 
@@ -81,6 +86,10 @@ print(f"[FEN] {state.current_fen}")
 hw.capture_baseline_if_needed(force_delay=1.0)
 
 hw.capture_baseline_if_needed(force_delay=1.0)
+
+# [API] Bắt đầu khởi tạo trận đấu truyền hình trực tiếp
+if not config.DRY_RUN:
+    state.api_client.create_match(red_name="Người chơi Thật", black_name="Robot AI")
 
 # Khởi chạy main loop (Đã bỏ Chọn độ khó)
 try:
@@ -181,8 +190,12 @@ try:
                             state.update_fen_from_board()
                             print(f"[FEN] {state.current_fen}")
                             
+                            # [API] Gửi cập nhật nước đi của AI lên Server
+                            state.api_client.send_move_update_board(state.current_fen)
+                            
                             if xiangqi.get_king_pos('r', state.board) is None:
                                 state.handle_game_over('b')
+                                state.api_client.end_match(winner="BLACK", reason="CHECKMATE")
                             else:
                                 if hw.robot.connected:
                                     hw.capture_baseline_if_needed(force_delay=1.0)
@@ -194,6 +207,7 @@ try:
                     else:
                         print("[AI] No moves available -> AI Lost")
                         state.handle_game_over("r")
+                        state.api_client.end_match(winner="RED", reason="CHECKMATE")
 
         pygame.display.flip()
         clock.tick(30)

@@ -13,6 +13,7 @@ class InputHandler:
         if BTN_SURRENDER_RECT.collidepoint(mx, my) and not self.state.game_over:
             print("[GAME] YOU SURRENDER!")
             self.state.handle_game_over("b")
+            self.state.api_client.end_match(winner="BLACK", reason="RESIGN")
             return
 
         # New Game Button

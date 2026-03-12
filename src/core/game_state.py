@@ -1,10 +1,15 @@
 import time
-from src.core import xiangqi
-from src.core.fen_utils import board_array_to_fen, fen_to_board_array, INITIAL_FEN
+from typing import Optional, Tuple, Dict, List, Any
+
+from src.core import xiangqi  # type: ignore
+from src.core.fen_utils import board_array_to_fen, fen_to_board_array, INITIAL_FEN  # type: ignore
+from src.api.simulation_client import TuongKyDaiSuClient  # type: ignore
+import config  # type: ignore
 
 class GameState:
     def __init__(self, allow_mouse_move=False):
         self.allow_mouse_move = allow_mouse_move
+        self.api_client = TuongKyDaiSuClient(config.SIMULATION_API_URL, config.SIMULATION_TOKEN)
         
         # Core Game State
         self.current_fen = INITIAL_FEN
@@ -18,22 +23,23 @@ class GameState:
         self.move_history = []
         self.move_number = 1
         
+        
         # UI Feedback State
-        self.status_message = ""
-        self.status_color = (0, 0, 0)
-        self.status_expiry = 0.0
-        self.invalid_flash_pos = None
-        self.invalid_flash_expiry = 0.0
+        self.status_message: str = ""
+        self.status_color: Tuple[int, int, int] = (0, 0, 0)
+        self.status_expiry: float = 0.0
+        self.invalid_flash_pos: Optional[Tuple[int, int]] = None
+        self.invalid_flash_expiry: float = 0.0
         
         # AI Thread State
-        self.ai_thread = None
-        self.ai_result = None
-        self.ai_thinking = False
-        self.ai_think_start = 0.0
+        self.ai_thread: Any = None
+        self.ai_result: Any = None
+        self.ai_thinking: bool = False
+        self.ai_think_start: float = 0.0
         
         # Rollback State
-        self._pre_space_state = None
-        self.manual_override_active = False
+        self._pre_space_state: Optional[Dict[str, Any]] = None
+        self.manual_override_active: bool = False
 
     def update_fen_from_board(self):
         """Cập nhật current_fen từ board array hiện tại."""
@@ -152,6 +158,9 @@ class GameState:
         self.move_number += 1
         self.update_fen_from_board()
         print(f"[FEN] {self.current_fen}")
+        
+        # [API] Đồng bộ nước đi lên máy chủ Simulation
+        self.api_client.send_move_update_board(self.current_fen)
         
         if xiangqi.get_king_pos("b", self.board) is None:
             self.handle_game_over("r")
