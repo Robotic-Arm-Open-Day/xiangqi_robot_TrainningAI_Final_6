@@ -2,11 +2,21 @@
 # === FILE: config.py (CẤU HÌNH TOÀN HỆ THỐNG) ===
 # =============================================================================
 
-# --- THÔNG SỐ ROBOT & BÀN CỜ ---
-# (Các tọa độ này sẽ được ghi đè bởi quy trình Hiệu chỉnh tự động, nhưng cứ để làm gốc)
-BOARD_ORIGIN_X = 0.0
-BOARD_ORIGIN_Y = 0.0
-CELL_SIZE = 60.0
+# --- THÔNG SỐ ROBOT BÀN CỜ (HARDCODED TOẠ ĐỘ TOÁN HỌC) ---
+# Tọa độ gốc (Điểm R1 - tương ứng Xe Đen Trái, ô col=0, row=0)
+# Tọa độ này sẽ được hệ thống Robot tự động ghi đè lúc khởi động bằng lệnh GetRobotTeachingPoint("R1")
+BOARD_ORIGIN_X = 200.0  
+BOARD_ORIGIN_Y = -100.0 
+
+# Chiều hướng di chuyển so với gốc R1 (1 hoặc -1)
+# 1: col tăng thì X tăng, row tăng thì Y tăng
+ROBOT_DIR_X = 1  
+ROBOT_DIR_Y = 1  
+
+# Kích thước vật lý từng ô bàn cờ (mm)
+CELL_SIZE_X = 40.75  # 326mm chia cho 8 khoảng cột
+CELL_SIZE_Y = 41.00  # 370mm chia cho 9 khoảng hàng 
+RIVER_GAP_Y = 1.00   # Bù thêm 1mm khe hở của con Sông (Nằm giữa row 4 và row 5)
 
 # Tọa độ bãi chứa quân bị ăn (X, Y, Z)
 CAPTURE_BIN_X = -226.123

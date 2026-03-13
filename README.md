@@ -230,7 +230,7 @@ Thư viện quản lý thiết bị cứng và điều phối tín hiệu.
 File điều khiển cánh tay robot FR5.
 CÁC HÀM:
   - `connect()`: Kết nối robot qua RPC SDK.
-  - `board_to_pose()`: Đổi tọa độ cờ sang trục xyz (mm).
+  - `board_to_pose()`: Đổi tọa độ cờ sang trục xyz (mm) bằng **Công thức Toán Học Siêu Cứng** cực kỳ chuẩn xác, dựa trên kích thước ô chuẩn và Tọa độ Gốc `R1` đọc từ hệ điều hành con Robot (không còn dùng Calibrate Camera nữa).
   - `move_safe_pose()`: Di chuyển ngang an toàn (MoveCart). Vượt qua quân cờ khác nhờ Z cố định.
   - `go_to_home_chess()`: Dùng MoveJ thực thụ để vớt tay khỏi điểm Singularity (Lỗi 101/14/112).
   - `pick_at()` / `place_at()` / `place_in_capture_bin()` / `gripper_ctrl()`.

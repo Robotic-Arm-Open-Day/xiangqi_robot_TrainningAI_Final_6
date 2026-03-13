@@ -70,30 +70,25 @@ class HardwareManager:
         self._calibrate_robot()
 
     def _calibrate_robot(self):
-        print("\n--- ROBOT CALIBRATION ---")
-        dst_pts_logic = np.array([[0, 0], [8, 0], [8, 9], [0, 9]], dtype=np.float32)
+        print("\n--- ROBOT CALIBRATION (R1 ORIGIN) ---")
         try:
             if self.dry_run:
-                src_pts_fake = np.array([[200, -100], [520, -100], [520, 260], [200, 260]], dtype=np.float32)
-                self.robot.set_perspective_matrix(cv2.getPerspectiveTransform(dst_pts_logic, src_pts_fake))
+                self.config.BOARD_ORIGIN_X = 200.0
+                self.config.BOARD_ORIGIN_Y = -100.0
+                print(f"  ✅ DRY RUN: Gán gốc giả định X={self.config.BOARD_ORIGIN_X:.3f}, Y={self.config.BOARD_ORIGIN_Y:.3f}")
             else:
-                print("Reading coordinates from robot...")
-                pts_data = []
-                for i in range(1, 4+1):
-                    err, data = self.robot.robot.GetRobotTeachingPoint(f"R{i}")
-                    if err != 0:
-                        raise Exception(f"Error getting teaching point R{i} (err={err})")
-                    x, y = float(data[0]), float(data[1])
-                    print(f"  ✅ R{i}: X={x:.3f}, Y={y:.3f}")
-                    pts_data.append([x, y])
+                print("Reading coordinates from robot for R1...")
+                err, data = self.robot.robot.GetRobotTeachingPoint("R1")
+                if err != 0:
+                    raise Exception(f"Error getting teaching point R1 (err={err})")
+                self.config.BOARD_ORIGIN_X = float(data[0])
+                self.config.BOARD_ORIGIN_Y = float(data[1])
+                print(f"  ✅ Đã lấy gốc R1 thực tế: X={self.config.BOARD_ORIGIN_X:.3f}, Y={self.config.BOARD_ORIGIN_Y:.3f}")
 
-                src_pts_robot = np.array(pts_data, dtype=np.float32)
-                M_rob = cv2.getPerspectiveTransform(dst_pts_logic, src_pts_robot)
-                self.robot.set_perspective_matrix(M_rob)
-                print("=== ROBOT CALIBRATION OK ===")
+            print("=== ROBOT CALIBRATION OK ===")
         except Exception as e:
             print(f"\n{'='*60}")
-            print(f"❌ [CRITICAL] Robot calibration THẤT BẠI: {e}")
+            print(f"❌ [CRITICAL] Robot calibration (R1) THẤT BẠI: {e}")
             self.robot.connected = False
             print("   Robot đã bị vô hiệu hóa. Game tiếp tục ở chế độ KHÔNG CÓ ROBOT.")
 

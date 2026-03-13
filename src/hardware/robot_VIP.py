@@ -12,7 +12,7 @@ import cv2
 
 # Đảm bảo import được config từ thư mục gốc project
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_DIR = os.path.dirname(_THIS_DIR)
+_PROJECT_DIR = os.path.dirname(os.path.dirname(_THIS_DIR))
 sys.path.insert(0, _PROJECT_DIR)
 import config
 
@@ -88,28 +88,25 @@ class FR5Robot:
     # -------------------------------------------------------------------------
 
     def board_to_pose(self, col, row, z_height):
-        """Chuyển đổi (col, row) bàn cờ logic → tọa độ [x,y,z,rx,ry,rz] robot (mm)."""
-        M = self.perspective_matrix
-        if M is None:
-            raise Exception(
-                "CRITICAL ERROR: Robot chưa có Ma trận hiệu chỉnh. Không thể di chuyển!"
-            )
-
-        logic_pt = np.array([[[float(col), float(row)]]], dtype=np.float32)
-        try:
-            real_pt = cv2.perspectiveTransform(logic_pt, M)
-        except Exception as e:
-            print(f"[ROBOT] ❌ Lỗi perspectiveTransform: {e}")
-            raise
-
-        x_mm = float(real_pt[0][0][0])
-        y_mm = float(real_pt[0][0][1])
+        """Chuyển đổi (col, row) bàn cờ logic → tọa độ [x,y,z,rx,ry,rz] robot (mm) bằng Toán Cứng."""
+        
+        # 1. Tính delta khoảng cách từ ô gốc (0,0)
+        delta_x = col * config.CELL_SIZE_X
+        delta_y = row * config.CELL_SIZE_Y
+        
+        # Bù thêm khe hở Sông (River gap) cho các quân nằm phía Đỏ (row >= 5)
+        if row >= 5:
+            delta_y += config.RIVER_GAP_Y
+            
+        # 2. Áp dụng hướng (Direction) và cộng với Tọa độ gốc R1
+        x_mm = config.BOARD_ORIGIN_X + (delta_x * config.ROBOT_DIR_X)
+        y_mm = config.BOARD_ORIGIN_Y + (delta_y * config.ROBOT_DIR_Y)
 
         if abs(x_mm) > 900 or abs(y_mm) > 900:
-            print(f"[ROBOT] ⚠️ Tọa độ quá xa ({x_mm:.1f}, {y_mm:.1f}) — kiểm tra lại hiệu chỉnh!")
+            print(f"[ROBOT] ⚠️ Tọa độ quá xa ({x_mm:.1f}, {y_mm:.1f}) — cẩn thận đập máy!")
 
-        # DEBUG: in tọa độ thực tế để kiểm tra calibration
-        print(f"[ROBOT] 📐 board({col},{row}) → X={x_mm:.1f}mm, Y={y_mm:.1f}mm, Z={z_height:.1f}mm")
+        # DEBUG: in ra console để dễ kiểm soát
+        print(f"[ROBOT] 📐 HARDCODED: board({col},{row}) → X={x_mm:.1f}mm, Y={y_mm:.1f}mm, Z={z_height:.1f}mm")
 
         return [x_mm, y_mm, z_height] + list(config.ROTATION)
 
