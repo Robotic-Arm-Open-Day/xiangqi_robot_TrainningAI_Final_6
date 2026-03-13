@@ -42,6 +42,9 @@ Dự-án-gốc/
 │   └── Windows/              # Thư mục con chứa file thực thi exe của Pikafish
 │
 ├── src/                      # MÃ NGUỒN CHÍNH (CORE SOURCE CODE)
+│   ├── api/                  # Module Giao tiếp Mạng & API
+│   │   └── simulation_client.py # Client đồng bộ bàn cờ trực tiếp lên tuongkydaisu.com
+│   │
 │   ├── ai/                   # Module Trí Tuệ Nhân Tạo
 │   │   ├── pikafish_engine.py# Bộ giao tiếp biên dịch lệnh UCI trực tiếp với file Exe (Local)
 │   │   ├── cloud_engine.py   # Kết nối REST API lên tuongkydaisu.com (Cloud)
@@ -162,6 +165,7 @@ Dự-án-gốc/
   [x] Khắc phục tay máy bị Singularity (Lỗi 101/14/112) bằng MoveJ + GetInverseKin
   [x] Gỡ bỏ yêu cầu bấm SPACE tạo baseline lần 2 sau lượt AI (Auto Snapshot)
   [x] Tích hợp bộ thư viện Robot SDK `robot_sdk_core.*` vào module phần cứng `src/hardware/`
+  [x] Tích hợp API Simulation của tuongkydaisu.com (Truyền real-time FEN lên xem trên web)
   [ ] Xác định và lưu điểm HOMECHESS lên bộ nhớ Robot để sửa lỗi err=143
   [ ] Verify bàn cờ lúc bắt đầu game (tùy chọn)
 
@@ -276,9 +280,20 @@ Render giao diện bàn cờ Pygame màn hình 800x600. Vẽ Highlight ô đỏ/
 
 ---
 
-### 3.6. CÁC FILE Lõi (ROOT FILES)
+### 3.6. MODULE API (`src/api/`)
+Giao tiếp với nền tảng máy chủ trực tuyến.
 
-#### 3.6.1. `main.py`
+#### 3.6.1. `simulation_client.py`
+Xử lý các cuộc gọi REST API tới tuongkydaisu.com.
+  - Quản lý REST Header (JWT Bearer Token lấy từ `config.py`).
+  - Giao tiếp 3 Endpoints: Khởi tạo phòng chiếu trực tiếp (`create_match`), Đồng bộ FEN mỗi nước đi (`send_move_update_board`), Khai báo kết thúc tàn cuộc (`end_match`).
+  - Giúp truyền hình trực tiếp cho khán giả theo dõi ván cờ của Máy và Robot qua mạng Internet (Một chiều).
+
+---
+
+### 3.7. CÁC FILE Lõi (ROOT FILES)
+
+#### 3.7.1. `main.py`
 Vòng lặp game chính (Game Loop 30FPS). Kiến trúc gọn nhẹ, đóng vai trò Controller trung tâm gọi Renderer, đưa Event vào InputHandler, và chạy Thread chờ AI đánh cờ. Hỗ trợ kích hoạt DRY_RUN tắt phụ thuộc phần mềm.
 
 #### 3.6.2. `RUN.bat`

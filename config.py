@@ -39,9 +39,13 @@ AI_THINK_TIME = 10  # Time per move in seconds — AI gets 10s after subtracting
 AI_DEPTH = 30          # Độ sâu mặc định (sẽ bị ghi đè bởi logic tự động)
 
 # --- AI ENGINE CONFIGURATION ---
-ENGINE_TYPE = "HYBRID" # "HYBRID" (Ưu tiên Cloud), "CLOUD" (Chỉ Cloud), "LOCAL" (Chỉ Local)
+ENGINE_TYPE = "HYBRID" # "HYPrefixBRID" (Ưu tiên Cloud), "CLOUD" (Chỉ Cloud), "LOCAL" (Chỉ Local)
 CLOUD_API_URL = "https://tuongkydaisu.com/api/engine/bestmove"
 CLOUD_TIMEOUT_SEC = 5
+
+# --- SIMULATION API CONFIGURATION ---
+SIMULATION_API_URL = "https://tuongkydaisu.com"
+SIMULATION_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzaW11bGF0aW9uMDAxIiwicm9sZSI6IlNJTVVMQVRJT04iLCJ0b2tlbklkIjoiMTlkYjRjMDEtNjk4My00MTU5LTllNzYtODk0NDU5YjJhMjM5IiwiaWF0IjoxNzczMTI3MTE5LCJleHAiOjE4MDQ2NjMxMTl9.cHQEzHS-SqrZqUZ9FRcJgUE_BzyxZ60iiy7xYzZPQOo" # Liên hệ admin để lấy Token cấp cho app. Điền vào đây.
 
 # --- PIKAFISH ENGINE ---
 # Hướng dẫn tải cho người mới clone repo:
