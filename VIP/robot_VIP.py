@@ -172,7 +172,7 @@ class FR5Robot:
         """Đưa robot về vị trí chờ an toàn (IDLE)."""
         print("[ROBOT] Về vị trí IDLE...")
         pose = [config.IDLE_X, config.IDLE_Y, config.IDLE_Z] + list(config.ROTATION)
-        self.movej_pose(pose)
+        self.movel_pose(pose)
 
     def go_to_home_chess(self):
         """Về vị trí HOMECHESS đã dạy trên bộ điều khiển."""
@@ -189,7 +189,7 @@ class FR5Robot:
                 print(f"[ROBOT] ⚠️ Không đọc được HOMECHESS (err={err}) → về IDLE")
                 self.go_to_idle_home()
                 return
-            self.movej_pose(list(data[:6]))
+            self.movel_pose(list(data[:6]))
             print("[ROBOT] ✅ Đã về HOMECHESS.")
         except Exception as e:
             print(f"[ROBOT] ⚠️ go_to_home_chess lỗi: {e} → về IDLE")
@@ -235,7 +235,7 @@ class FR5Robot:
         print(f"[ROBOT] 🤏 Gắp tại grid=({col},{row}) → X={pose_safe[0]:.1f}, Y={pose_safe[1]:.1f}, Z={pose_safe[2]:.1f}")
 
         self.gripper_ctrl(config.GRIPPER_OPEN)   # Mở kẹp
-        self.movej_pose(pose_safe)                # Đi đến vị trí an toàn trên ô
+        self.movel_pose(pose_safe)                # Đi đến vị trí an toàn trên ô
         self.movel_pose(pose_pick)                # Hạ xuống
         self.gripper_ctrl(config.GRIPPER_CLOSE)  # Đóng kẹp (gắp)
         time.sleep(0.5)                           # Đợi kẹp đóng
@@ -248,7 +248,7 @@ class FR5Robot:
         pose_place = self.board_to_pose(col, row, config.PLACE_Z)
         print(f"[ROBOT] 📍 Đặt tại grid=({col},{row}) → X={pose_safe[0]:.1f}, Y={pose_safe[1]:.1f}, Z={pose_safe[2]:.1f}")
 
-        self.movej_pose(pose_safe)                # Đến vị trí an toàn
+        self.movel_pose(pose_safe)                # Đến vị trí an toàn
         self.movel_pose(pose_place)               # Hạ xuống
         self.gripper_ctrl(config.GRIPPER_OPEN)   # Mở kẹp (thả)
         time.sleep(0.5)                           # Đợi thả
@@ -261,7 +261,7 @@ class FR5Robot:
         pose_safe  = [config.CAPTURE_BIN_X, config.CAPTURE_BIN_Y, config.SAFE_Z]  + list(config.ROTATION)
         pose_place = [config.CAPTURE_BIN_X, config.CAPTURE_BIN_Y, config.CAPTURE_BIN_Z] + list(config.ROTATION)
 
-        self.movej_pose(pose_safe)
+        self.movel_pose(pose_safe)
         self.movel_pose(pose_place)
         self.gripper_ctrl(config.GRIPPER_OPEN)
         time.sleep(0.5)
