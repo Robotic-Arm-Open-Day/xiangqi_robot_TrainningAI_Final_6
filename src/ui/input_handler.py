@@ -85,6 +85,11 @@ class InputHandler:
                 self.state.set_status("❌ Không chụp được baseline!", color=(180, 0, 0))
             return
 
+        # SAVE ROLLBACK STATE TRƯỚC KHI DETECT (để có thể rollback khi lỗi)
+        occ = [row[:] for row in self.hw.yolo_detector._baseline_occ]
+        b_time = self.hw.yolo_detector._baseline_time
+        self.state.save_rollback_state(occ, b_time)
+
         # Perform Detection
         print("[SPACE] 🔍 Chạy YOLO Detector...")
         src, dst, piece = self.hw.yolo_detector.detect_move(frame, detections, self.state.board)
@@ -109,8 +114,5 @@ class InputHandler:
             self.hw.clear_yolo_baseline()
             return
 
-        # Commit move
-        occ = [row[:] for row in self.hw.yolo_detector._baseline_occ]
-        b_time = self.hw.yolo_detector._baseline_time
-        self.state.save_rollback_state(occ, b_time)
+        # Commit move (state đã được save ở trên rồi)
         self.state.process_human_move(src, dst, piece)

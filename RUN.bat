@@ -19,9 +19,9 @@ if not exist "%~dp0main.py" (
     exit /b 1
 )
 
-REM Kiem tra Pikafish
-if not exist "%~dp0pikafish\Windows\pikafish-avx2.exe" (
-    echo [CANH BAO] Khong tim thay pikafish-avx2.exe!
+REM Kiem tra Moonfish
+if not exist "%~dp0moonfish\Windows\moonfish-avx2.exe" (
+    echo [CANH BAO] Khong tim thay moonfish-avx2.exe!
     echo  - He thong se tu dong su dung Cloud Engine API thay the.
     echo  - Neu muon choi Offline, hay tai ve tu:
     echo    https://github.com/official-pikafish/Pikafish/releases

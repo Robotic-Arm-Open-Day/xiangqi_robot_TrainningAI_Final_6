@@ -30,13 +30,13 @@ print(f"\n=== MODE: {_mode_label} ===")
 def _kill_zombie_processes():
     try:
         result = subprocess.run(
-            ['tasklist', '/FI', 'IMAGENAME eq pikafish*', '/FO', 'CSV', '/NH'],
+            ['tasklist', '/FI', 'IMAGENAME eq moonfish*', '/FO', 'CSV', '/NH'],
             capture_output=True, text=True, timeout=5
         )
-        if result.stdout.strip() and 'pikafish' in result.stdout.lower():
-            print("[CLEANUP] ⚠️ Phát hiện pikafish zombie process — đang kill...")
-            subprocess.run(['taskkill', '/F', '/IM', 'pikafish*'], capture_output=True, timeout=5)
-            print("[CLEANUP] ✅ Killed zombie pikafish processes.")
+        if result.stdout.strip() and 'moonfish' in result.stdout.lower():
+            print("[CLEANUP] ⚠️ Phát hiện moonfish zombie process — đang kill...")
+            subprocess.run(['taskkill', '/F', '/IM', 'moonfish*'], capture_output=True, timeout=5)
+            print("[CLEANUP] ✅ Killed zombie moonfish processes.")
             time.sleep(0.5)
     except Exception as e:
         print(f"[CLEANUP] ⚠️ Không thể kiểm tra zombie processes: {e}")

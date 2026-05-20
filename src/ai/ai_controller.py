@@ -6,7 +6,7 @@ import traceback
 
 
 class AIController:
-    """Wrapper quản lý cả Local Pikafish Engine và Cloud Engine.
+    """Wrapper quản lý cả Local Moonfish Engine và Cloud Engine.
 
     Cách dùng từ main_VIP.py:
         ai_ctrl = AIController(local_engine, cloud_engine, config)
@@ -15,7 +15,7 @@ class AIController:
     def __init__(self, local_engine, cloud_engine, config):
         """
         Args:
-            local_engine: PikafishEngine instance (có thể None nếu config là CLOUD)
+            local_engine: MoonfishEngine instance (có thể None nếu config là CLOUD)
             cloud_engine: CloudEngine instance (có thể None nếu config là LOCAL)
             config: module config
         """
@@ -24,7 +24,7 @@ class AIController:
         self.config = config
 
     def pick_move(self, board_snapshot, color="b"):
-        """Gọi Pikafish để lấy nước đi tốt nhất.
+        """Gọi Moonfish để lấy nước đi tốt nhất.
 
         Hàm này chạy BLOCKING — phải gọi trong thread riêng.
 
@@ -49,24 +49,24 @@ class AIController:
                         print(f"[AI] ❌ Lỗi Cloud API (Chế độ chỉ Cloud): {e}")
                         return None
                     else:
-                        print(f"[AI] ⚠️ Cloud API timeout/error: {e} -> Dùng Local Pikafish để cứu nguy!")
+                        print(f"[AI] ⚠️ Cloud API timeout/error: {e} -> Dùng Local Moonfish để cứu nguy!")
             else:
                  print("[AI] ⚠️ Chế độ Cloud được bật nhưng chưa có instance CloudEngine.")
 
         # THỬ LOCAL ENGINE (Nếu mode là LOCAL hoặc HYBRID fallback fail)
         if engine_type in ["HYBRID", "LOCAL"]:
             if self.local_engine is None:
-                print("[AI] ❌ Pikafish engine chưa khởi động! "
-                      "Kiểm tra file exe trong thư mục pikafish/.")
+                print("[AI] ❌ Moonfish engine chưa khởi động! "
+                      "Kiểm tra file exe trong thư mục moonfish/.")
                 return None
             
             try:
                 result = self.local_engine.pick_best_move(
-                    board_snapshot, color, movetime_ms=self.config.PIKAFISH_THINK_MS
+                    board_snapshot, color, movetime_ms=self.config.MOONFISH_THINK_MS
                 )
                 return result
             except Exception as e:
-                print(f"[AI] ❌ Lỗi cả Local Pikafish: {e}")
+                print(f"[AI] ❌ Lỗi cả Local Moonfish: {e}")
                 traceback.print_exc()
                 return None
         

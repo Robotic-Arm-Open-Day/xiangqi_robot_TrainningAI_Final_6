@@ -59,6 +59,19 @@ class GameState:
         }
 
     def reset_game(self, hw_manager=None):
+        # [API] Đóng room cũ trước khi tạo game mới
+        if self.api_client.room_id:
+            print("[GAME] 🔚 Đóng room cũ trước khi tạo game mới...")
+            winner = "DRAW"
+            reason = "OTHER"
+            
+            # Nếu game đã kết thúc, dùng winner thực tế
+            if self.game_over and self.winner:
+                winner = "RED" if self.winner == "r" else "BLACK"
+                reason = "CHECKMATE"
+            
+            self.api_client.end_match(winner=winner, reason=reason)
+        
         self.current_fen = INITIAL_FEN
         self.board, self.turn = fen_to_board_array(self.current_fen)
         self.game_over = False
@@ -84,6 +97,10 @@ class GameState:
         
         if hw_manager:
             hw_manager.capture_baseline_if_needed(force_delay=1)
+        
+        # [API] Tạo room mới (nếu không ở chế độ DRY_RUN)
+        if not config.DRY_RUN:
+            self.api_client.create_match(red_name="Người chơi Thật", black_name="Robot AI")
 
     def set_status(self, msg, color=(200, 0, 0), duration=2.5):
         self.status_message = msg
